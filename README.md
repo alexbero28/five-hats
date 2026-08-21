@@ -35,7 +35,8 @@ five-hats-report/
    01-what-nothing-reads.txt
    02-who-has-used-it.txt
    03-what-is-decaying.txt
-   04-the-plan.txt               every finding, its fix, and its trap
+   04-where-the-work-goes.txt    the files eating your time
+   05-the-plan.txt               every finding, its fix, and its trap
    AGENT-BRIEF.md                hand this to your AI
 ```
 
@@ -128,6 +129,36 @@ which way each number went:
 skill file and a skill that has fired look identical from the filesystem. Where that limit bites it
 prints the limit instead of a number. That exact gap is where our own 1,639 never-loaded skills
 lived for two months.
+
+---
+
+## `hotspots.mjs` — where the work actually goes
+
+The other checks answer *what is dead*, *who used it*, *what is decaying*. None of them answer the
+question people actually feel: **where is this slow and painful.**
+
+```bash
+node hotspots.mjs ../your-repo
+```
+
+That answer is sitting in git history and almost nobody looks. A file that changes constantly is
+where your effort goes. A large file is expensive to change. A file with no test is dangerous to
+change. A file whose history is mostly *fixes* is one you keep getting wrong.
+
+```
+  your-app     225 commits
+      55 changes   2289 lines   panel/stage-runner.mjs  <- 18 fix commits
+      36 changes   1291 lines   panel/server.mjs  <- 8 fix commits
+     → start with panel/stage-runner.mjs — changed 55x, 2289 lines, 18 of those were fixes
+```
+
+**What this is not.** It does not read your code for meaning, judge quality, or find bugs. It is
+counting, not comprehending. And churn alone is *not* a defect — the core of a healthy project is
+usually its most-changed file, and that is correct. What earns attention is changed-often **and**
+large **and** untested. The output says which is which rather than implying churn is a problem.
+
+It tells your AI which ten files to open first. The reading is still its job, and the decision is
+still yours.
 
 ---
 

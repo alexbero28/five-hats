@@ -12,7 +12,7 @@
 // WHAT IT DOES, IN ORDER:
 //   1. Checks the ground   — node, git, and whether the target actually holds projects.
 //   2. Takes the baseline  — the before-picture, so improvement can be measured later, not asserted.
-//   3. Runs the three checks — what nothing reads, what nobody uses, what is decaying.
+//   3. Runs the checks     — what nothing reads, who uses it, what decays, where effort goes.
 //   4. Writes the plan     — every finding with its correct response and its trap.
 //   5. Writes the brief    — the doctrine + findings, for their AI to execute under their gate.
 //
@@ -117,22 +117,26 @@ const chart = base.split('\n').filter((l) => /█|░|NOT ANALYSED|nobody has ev
 for (const l of chart.slice(0, 8)) console.log(`  ${l}`);
 
 // ---- 3. the three checks ------------------------------------------------------------------------
-step(3, 'Running the three checks');
+step(3, 'Running the checks');
 const sweepOut = run('sweep.mjs', ['--registry', regPath], 'sweep');
 const reachOut = run('reach.mjs', ['--registry', regPath], 'reach');
 const driftOut = run('drift.mjs', ['--registry', regPath], 'drift');
+const hotOut = run('hotspots.mjs', ['--registry', regPath], 'hotspots');
 written.push(save('01-what-nothing-reads.txt', sweepOut));
 written.push(save('02-who-has-used-it.txt', reachOut));
 written.push(save('03-what-is-decaying.txt', driftOut));
+written.push(save('04-where-the-work-goes.txt', hotOut));
 const tally = (s, re) => (s.match(re) || ['—'])[0];
 console.log(`      what nothing reads   ${tally(sweepOut, /\d+ finding\(s\)[^\n]*/)}`);
 console.log(`      who has used it      ${tally(reachOut, /\d+ reached[^\n]*/)}`);
 console.log(`      what is decaying     ${tally(driftOut, /\d+ serious[^\n]*/)}`);
+const hotLine = (hotOut.match(/start with [^\n]*/) || [''])[0].trim();
+console.log(`      where the work goes  ${hotLine || 'no git history to measure'}`);
 
 // ---- 4 + 5. the plan and the brief ---------------------------------------------------------------
 step(4, 'Writing the plan');
 const planOut = run('fix.mjs', ['--registry', regPath, '--brief'], 'fix');
-written.push(save('04-the-plan.txt', planOut));
+written.push(save('05-the-plan.txt', planOut));
 const counts = planOut.match(/(\d+) mechanical · (\d+) needing a decision/);
 if (counts) console.log(`      ${counts[1]} mechanical (safe to automate) · ${counts[2]} needing a human decision`);
 
@@ -151,7 +155,7 @@ console.log(`\n${B('  What to do next, in order:')}\n`);
 console.log(`  1. Open the ${B('baseline HTML')} — that is where you are today. Keep the .json;`);
 console.log('     it is the only honest "before" you will get, and re-running --compare later');
 console.log('     is what proves anything improved.');
-console.log(`\n  2. Read ${B('04-the-plan.txt')}. Do the MECHANICAL items first — they are cheap`);
+console.log(`\n  2. Read ${B('05-the-plan.txt')}. Do the MECHANICAL items first — they are cheap`);
 console.log('     and they cannot bite you.');
 console.log(`\n  3. Hand ${B('AGENT-BRIEF.md')} to your AI assistant. It carries how to work, not`);
 console.log('     just what to fix. Let it do the mechanical half while you watch, and make it');

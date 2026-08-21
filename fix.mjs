@@ -158,6 +158,16 @@ const R = {
     steps: ['Kill it, or promote it to a real project with a real verify. Then move the date or remove it.'],
     trap: 'Extending the date by reflex. The second extension means it is permanent — decide honestly.',
   },
+  hotspot: {
+    order: 5.5, lane: 'judgment', title: 'A file that keeps costing you',
+    why: 'Changed constantly, large, and either untested or mostly fixed. This is where your time actually goes.',
+    steps: [
+      'Open it and ask why it changes so often. Usually it holds two or three jobs that want separating.',
+      'If nothing tests it, add ONE assertion for the case that would embarrass you most. Not a suite — one.',
+      'If its history is mostly fixes, that is a design signal, not a discipline problem. The shape is wrong.',
+    ],
+    trap: 'Treating churn alone as a defect. The core of a healthy project is usually its most-changed file, and that is correct. Hot plus large plus untested is the finding — hot on its own is not.',
+  },
   notAnalysed: {
     order: 12, lane: 'judgment', title: 'A language that was NOT analysed',
     why: 'These files were never examined. This is a blind spot, not a clean result.',
@@ -183,6 +193,20 @@ if (!sweep.__error) for (const r of sweep) {
   for (const o of r.orphans || []) note('orphan', r.project, o.file);
   for (const w of r.writerless || []) note('writerless', r.project, w.file);
   for (const n of r.notAnalysed || []) note('notAnalysed', r.project, `${n.lang} — ${n.files} file(s)`);
+}
+
+// Only the files where the three signals AGREE. Churn alone is not a finding, and reporting the
+// busiest file in every healthy project would bury the ones that actually hurt.
+const hot = run('hotspots.mjs');
+if (!hot.__error) for (const r of hot) {
+  for (const f of (r.files || []).slice(0, 8)) {
+    if (f.changes >= 8 && f.lines >= 300 && (!f.tested || f.fixes >= 3)) {
+      const marks = [`changed ${f.changes}x`, `${f.lines} lines`];
+      if (!f.tested) marks.push('no test');
+      if (f.fixes >= 3) marks.push(`${f.fixes} fix commits`);
+      note('hotspot', r.project, `${f.file} — ${marks.join(', ')}`);
+    }
+  }
 }
 
 const reach = run('reach.mjs');
