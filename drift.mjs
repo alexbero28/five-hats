@@ -73,6 +73,15 @@ for (const [name, cfg] of resolveTargets()) {
   // 2. NO VERIFY AT ALL.
   if (!cfg._noRegistry && !cfg.verify) add('serious', name, 'no verify wired', 'nothing can call this project done');
 
+  // SAY WHAT YOU CANNOT SEE. Four checks above read fields that only a registry supplies, so a
+  // bare-path run silently skips them — including "no verify wired", which is the whole thesis.
+  // Without this line that run printed "nothing drifting · 0 serious" for a project that scores
+  // SERIOUS the moment a registry exists. The one place in this repo that broke its own rule.
+  if (cfg._noRegistry) {
+    add('info', name, 'NOT CHECKED: verify, lane, strength, expiry',
+      'these live in a registry — re-run with --registry projects.json to include them');
+  }
+
   // 3. AN EXPIRED SPIKE. A prototype with no kill date becomes permanent — this repo carries a
   //    1,132-commit archived engine and a 55 MB orphan that were both once experiments.
   if (cfg.expires) {
@@ -80,7 +89,17 @@ for (const [name, cfg] of resolveTargets()) {
     else add('info', name, `spike expires ${cfg.expires}`, 'still inside its window');
   }
 
-  if (!fs.existsSync(path.join(root, '.git'))) continue;
+  // NO VERSION CONTROL AT ALL. This used to `continue` straight past every remaining check,
+  // which meant the WORST case produced NO finding — and a consumer counting "projects with a
+  // no-remote warning" then scored it as safely backed up. A folder with no git, holding loose
+  // files, was reported as "survives a disk failure: all covered". Reported clean because
+  // nothing looked, on the one subject where being wrong costs you the work itself.
+  // No git is strictly WORSE than a missing remote, so it emits the stronger finding.
+  if (!fs.existsSync(path.join(root, '.git'))) {
+    add('serious', name, 'not under version control',
+      'no git at all — nothing to push, nothing to recover, no history to fall back on');
+    continue;
+  }
 
   // 4. NO REMOTE. One disk failure from gone.
   const remote = git(root, 'git remote');

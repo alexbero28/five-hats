@@ -44,7 +44,13 @@ function runCheck(tool, extra = []) {
   // disagree with what the checks themselves report.
   const args = [join(HERE, tool), ...extra, '--json'];
   try {
-    const out = execFileSync(process.execPath, args, { encoding: 'utf8', stdio: 'pipe', timeout: 300000 });
+    // maxBuffer must be explicit. On a large tree sweep's JSON exceeded the default and the
+    // child's stdout was TRUNCATED mid-string, surfacing as
+    //   "could not measure: Unterminated string in JSON at position 65536"
+    // The principle held (it said "could not measure", not "0 findings") but the measurement
+    // was lost on exactly the big repos worth measuring.
+    const out = execFileSync(process.execPath, args,
+      { encoding: 'utf8', stdio: 'pipe', timeout: 300000, maxBuffer: 256 * 1024 * 1024 });
     return JSON.parse(out);
   } catch (e) {
     return { __error: String(e.stderr || e.message).split('\n')[0] };
@@ -87,7 +93,10 @@ else {
   for (const d of drift) {
     if (d.sev in decay) decay[d.sev] += 1;
     const w = String(d.what || '');
-    if (/no git remote/i.test(w)) decay.noRemote += 1;
+    // "not under version control" is STRICTLY WORSE than a missing remote, so it must count
+    // toward the same gap. Matching only /no git remote/ is what let a folder with no git at
+    // all be scored as backed up.
+    if (/no git remote|not under version control/i.test(w)) decay.noRemote += 1;
     if (/unpushed/i.test(w)) decay.unpushed += 1;
     if (/secret file is TRACKED/i.test(w)) decay.trackedSecret += 1;
   }

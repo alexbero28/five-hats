@@ -119,7 +119,12 @@ for (const [key, L] of Object.entries(LANGS)) for (const e of L.ext) EXT_TO_LANG
 if (argv.includes('--langs')) {
   console.log('# sweep — what can be analysed, and what cannot\n');
   for (const [, L] of Object.entries(LANGS)) {
-    if (L.checks.length) console.log(`  ${L.name.padEnd(12)} ${L.checks.join(' · ')}`);
+    if (L.checks.length) {
+      const ALL = ['deadDir', 'testOnly', 'orphan'];
+      const missing = ALL.filter((c) => !L.checks.includes(c));
+      const gap = missing.length ? `   (no ${missing.join(', ')})` : '';
+      console.log(`  ${L.name.padEnd(12)} ${L.checks.join(' · ')}${gap}`);
+    }
     else console.log(`  ${L.name.padEnd(12)} NOT ANALYSED — ${L.why}`);
   }
   console.log('\n  A language is never silently skipped. If it is here and unsupported, sweep says so on every run.');
@@ -266,6 +271,11 @@ function sweepProject(name, cfg) {
       const stem = base.slice(0, base.length - path.extname(base).length);
       const r = rel(f);
       if (L.entry.test(r) || isScratch(f)) continue;
+      // FILE-BASED ROUTING. A file under api/ or pages/ IS the route — the framework invokes it
+      // by its path, and nothing imports it, ever. Reporting `api/stripe-webhook.js` as dead code
+      // is a confident lie about a live payment endpoint, and it teaches the reader to skim.
+      // The convention is the reference here, exactly as a docs mention is for a bin/ CLI.
+      if (/(^|\/)(api|pages|routes|functions|endpoints)\//i.test(r)) continue;
       // Python conventions that mean "this is run, not imported".
       if (langKey === 'py') {
         if (['__init__.py', '__main__.py', 'setup.py', 'conftest.py', 'manage.py'].includes(base)) continue;
