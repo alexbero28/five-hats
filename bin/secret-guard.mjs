@@ -140,22 +140,40 @@ function modePush() {
   for (const line of input.split('\n')) {
     const [, localSha, , remoteSha] = line.split(/\s+/);
     if (!localSha || localSha === Z) continue; // branch deletion
-    let range;
+    // The base of the diff. `sha^` is WRONG for a ROOT commit -- it has no parent, git errors,
+    // and (before this fix) the catch below swallowed it and the push reported clean without
+    // having scanned a single byte. That is a guard failing OPEN, on exactly the push that
+    // matters most: the first one, to a brand-new repository. Diff against the empty tree
+    // instead, which is what "everything this commit adds" means for a first commit.
+    const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+    let base;
     if (!remoteSha || remoteSha === Z) {
       // new branch: only the commits not already on a remote
       const list = git(['rev-list', localSha, '--not', '--remotes'], cwd).trim();
       if (!list) continue;
       const shas = list.split('\n');
-      range = `${shas[shas.length - 1]}^..${localSha}`;
+      const oldest = shas[shas.length - 1];
+      let hasParent = true;
+      try { git(['rev-parse', '--verify', '--quiet', `${oldest}^`], cwd); } catch { hasParent = false; }
+      base = hasParent ? `${oldest}^` : EMPTY_TREE;
     } else {
-      range = `${remoteSha}..${localSha}`;
+      base = remoteSha;
     }
     try {
-      const names = git(['diff', '--name-only', '--diff-filter=ACM', range], cwd)
+      const names = git(['diff', '--name-only', '--diff-filter=ACM', base, localSha], cwd)
         .split('\n').map((s) => s.trim()).filter(Boolean);
       names.forEach(checkPath);
-      scanDiff(git(['diff', '-U0', '--diff-filter=ACM', range], cwd));
-    } catch { /* range resolution can fail on odd refs; commit hook is the primary guard */ }
+      scanDiff(git(['diff', '-U0', '--diff-filter=ACM', base, localSha], cwd));
+    } catch (e) {
+      // FAIL CLOSED. If the range cannot be resolved this hook did not look at anything, and
+      // letting the push through would be a clean result from an instrument that never ran.
+      // Refusing is recoverable in one flag; a leaked credential in public history is not.
+      findings.push({
+        kind: 'unscannable',
+        where: `${base}..${localSha}`,
+        what: `could not diff this range, so NOTHING was scanned (${String(e.message).split('\n')[0]})`,
+      });
+    }
   }
   return report('push');
 }
