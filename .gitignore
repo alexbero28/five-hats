@@ -1,0 +1,6 @@
+node_modules/
+projects.json
+.env
+baseline-*.json
+baseline-*.html
+.private-terms

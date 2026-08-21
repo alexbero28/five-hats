@@ -1,0 +1,11 @@
+# Words that must never appear in this repo, one per line.
+# Copy this file to `.private-terms` (gitignored) and replace these with YOUR OWN:
+# client names, brand names, internal project names, vendors, anything private.
+#
+# Matched case-insensitively on whole words across every .mjs, .md and .json file.
+# The list stays on your machine. It is deliberately NOT in the source, because a
+# checker that hard-codes the names it protects publishes them the moment you share it.
+acme-corp
+northwind
+your-client-name
+your-internal-project

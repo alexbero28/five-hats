@@ -1,0 +1,36 @@
+{
+  "_comment": "OPTIONAL. All three tools work with no registry at all — run them inside any repo and they scan that folder. This file is for when you want one command to sweep, measure and check EVERY project you own at once. Copy it to projects.json and edit. Paths may be relative to this file or absolute, and ~ expands to your home directory.",
+
+  "_fields": {
+    "path": "where the project lives",
+    "verify": "ONE command that returns pass/fail for this project. This is the important field. If you cannot write it, that is the finding — you have no way to know when the project is healthy.",
+    "lane": "fast = it can run unattended. tier1 = it touches money, publishing, legal exposure or a real customer, so a human gates it.",
+    "strength": "how strong the verify actually is, weakest to strongest: parse < lint < types < tests < live. Be honest — GREEN.parse reads exactly like GREEN.tests at a glance and only one of them can catch a wrong answer.",
+    "expires": "OPTIONAL, YYYY-MM-DD. For an experiment. drift.mjs reports it as SERIOUS the day it lapses: kill it or promote it. Prototypes with no kill date become permanent.",
+    "sweepIgnore": "OPTIONAL. Folders where every file is its own entry point (a workers/ directory launched by a scheduler). 'Nothing imports it' is meaningless there.",
+    "reachPaths": "OPTIONAL. Extra folders that only fill up when a real customer does something."
+  },
+
+  "projects": {
+    "example-web-app": {
+      "path": "../example-web-app",
+      "verify": "npm test",
+      "lane": "tier1",
+      "strength": "tests"
+    },
+    "example-scripts": {
+      "path": "../example-scripts",
+      "verify": "node --check index.mjs",
+      "lane": "fast",
+      "strength": "parse",
+      "sweepIgnore": ["workers/"]
+    },
+    "example-experiment": {
+      "path": "../example-experiment",
+      "verify": "node smoke.mjs",
+      "lane": "fast",
+      "strength": "parse",
+      "expires": "2026-09-30"
+    }
+  }
+}
