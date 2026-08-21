@@ -112,6 +112,42 @@ lived for two months.
 
 ---
 
+## `fix.mjs` — what to actually do about it
+
+The checks tell you what is wrong and then stop. That is correct — a tool that deletes on its own
+is how you lose the one file that mattered — but on its own it leaves people stuck. They can see
+the finding, have no idea what the right response is, and nothing happens. Same outcome as never
+having run it.
+
+```bash
+node fix.mjs ../your-repo            # the plan, in the order worth doing it
+node fix.mjs ../your-repo --brief    # ...and AGENT-BRIEF.md to hand to your AI
+```
+
+Every finding type has a known correct response, and most have a known WRONG one that looks right.
+`fix.mjs` is that knowledge written down. It changes nothing.
+
+The distinction it draws is the whole point:
+
+| | |
+|---|---|
+| **MECHANICAL** | Deterministic, reversible, no taste required — `git init`, add a remote, delete an empty file. Safe to let your AI do while you watch. |
+| **JUDGMENT** | Someone has to decide. Is this dead subsystem really dead? Ship this project or park it? No tool can answer that, and one that pretends to is lying to you. |
+
+Each item carries its **trap** — the wrong move that looks right:
+
+> **A secret is tracked by git.** Deleting the file and committing that. The value is still in
+> the history, still readable, still valid. Deletion is not rotation.
+
+> **A whole subsystem nothing reaches.** Deleting because a tool said so. Confirm with the person
+> who wrote it, or with git log, before anything leaves the tree.
+
+`--brief` writes a file you hand to your AI assistant. It carries the lanes, the seven rules, the
+findings, and the traps — enough for someone else's AI to work the way this one does, with the
+human still holding every irreversible decision.
+
+---
+
 ## The three checks
 
 ### `sweep.mjs` — the Sweeper

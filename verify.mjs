@@ -17,7 +17,7 @@ const ok = (m) => console.log(`  ok   ${m}`);
 const bad = (m) => { fail.push(m); console.log(`  FAIL ${m}`); };
 console.log('five-hats-kit verify\n');
 
-const CHECKS = ['sweep.mjs', 'reach.mjs', 'drift.mjs', 'baseline.mjs'];
+const CHECKS = ['sweep.mjs', 'reach.mjs', 'drift.mjs', 'baseline.mjs', 'fix.mjs'];
 const TOOLS = ['bin/project.mjs', 'bin/secret-guard.mjs'];
 
 // 1. Everything the README promises is actually here.
