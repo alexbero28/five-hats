@@ -195,10 +195,10 @@ function bar(have, total) {
   const filled = Math.round((have / total) * WIDTH);
   return '█'.repeat(filled) + '░'.repeat(WIDTH - filled);
 }
-function row(label, have, total, gapWord) {
+function row(label, have, total, gapWord, gapOverride) {
   const gap = total - have;
   const frac = total ? `${have}/${total}` : '—';
-  const note = !total ? '' : gap === 0 ? 'all covered' : `${gap} ${gapWord}`;
+  const note = !total ? '' : gap === 0 ? 'all covered' : (gapOverride || `${gap} ${gapWord}`);
   console.log(`     ${label.padEnd(26)} ${bar(have, total)}  ${frac.padStart(7)}   ${note}`);
 }
 
@@ -212,7 +212,15 @@ if (totalProjects) {
   if (gov.projects) {
     row('can prove it works', gov.withVerify, gov.projects, 'have no verify command');
   }
-  row('used by a real person', use.reached, totalProjects, 'nobody has ever touched');
+  // NEVER and CAN'T TELL are different facts and must never be merged. reach reported
+  // "0 never · 15 can't tell" while this row claimed "15 nobody has ever touched" -- the chart
+  // asserting something the check had explicitly declined to assert.
+  const useGap = [
+    use.never ? `${use.never} nobody has ever touched` : '',
+    use.unknown ? `${use.unknown} can't tell (name your evidence folders)` : '',
+    use.missing ? `${use.missing} path missing` : '',
+  ].filter(Boolean).join(' · ');
+  row('used by a real person', use.reached, totalProjects, 'nobody has ever touched', useGap);
   row('survives a disk failure', totalProjects - decay.noRemote, totalProjects, 'exist on exactly one disk');
   console.log('');
   const cleanup = code.deadDirs + code.orphans + code.testOnly + code.writerless;
@@ -285,14 +293,14 @@ console.log('');
 // written locally, opened from disk. No network request, no external asset, no tracking.
 if (flag('report')) {
   const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-  const gapRow = (label, have, total, gapWord) => {
+  const gapRow = (label, have, total, gapWord, gapOverride) => {
     if (!total) return '';
     const pct = Math.round((have / total) * 100);
     const gap = total - have;
     return `<div class="row"><div class="lab">${esc(label)}</div>
       <div class="track"><div class="fill" style="width:${pct}%"></div></div>
       <div class="num">${have}/${total}</div>
-      <div class="gap">${gap === 0 ? 'all covered' : `${gap} ${esc(gapWord)}`}</div></div>`;
+      <div class="gap">${gap === 0 ? 'all covered' : esc(gapOverride || `${gap} ${gapWord}`)}</div></div>`;
   };
   const tp = totalProjects;
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -324,7 +332,7 @@ ul{margin:8px 0 0;padding-left:20px;color:var(--soft);font-size:14px}
 <h2>Coverage — filled is covered, empty is the gap</h2>
 <div class="card">
 ${gov.projects ? gapRow('Can prove it works', gov.withVerify, gov.projects, 'have no verify command') : ''}
-${gapRow('Used by a real person', use.reached, tp, 'nobody has ever touched')}
+${gapRow('Used by a real person', use.reached, tp, 'nobody has ever touched', useGap)}
 ${gapRow('Survives a disk failure', tp - decay.noRemote, tp, 'exist on exactly one disk')}
 <p class="note">Every empty block is a decision nobody has made yet — not a failure.
 Nothing here is an estimate; it is a count taken just now of what is on this disk.</p>

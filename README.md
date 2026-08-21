@@ -16,25 +16,44 @@ the first half and still get most of the value.
 
 ---
 
-## Start here — back up, measure, then look
+## Start here — one command
 
 ```bash
-# 0. keep a copy of your current setup. you cannot measure against a baseline you no longer have
-cp -r ~/.claude ~/.claude.backup-$(date +%Y-%m-%d)
-
-# 1. the before-picture
-node baseline.mjs .. --save
-
-# 2. the three answers your test suite never gives you
-node sweep.mjs ../your-repo     # what nothing reads
-node reach.mjs ../your-repo     # has a real person ever used this
-node drift.mjs ../your-repo     # what is quietly decaying
+git clone https://github.com/alexbero28/five-hats.git
+cd five-hats
+node start.mjs ~/path/to/your/projects
 ```
 
-Every command above is read-only, except `--save`, which writes one JSON file into this folder
-because you asked it to.
+Point it at the folder that **contains** your projects, not at one project. It goes end to end —
+checks the ground, takes the before-picture, runs the three checks, writes the plan — and leaves
+everything in one folder:
 
-If you only ever use this repo for those commands, it was worth cloning.
+```
+five-hats-report/
+   baseline-2026-08-21.html      where you are today, as a chart
+   baseline-2026-08-21.json      the before-picture, for --compare later
+   01-what-nothing-reads.txt
+   02-who-has-used-it.txt
+   03-what-is-decaying.txt
+   04-the-plan.txt               every finding, its fix, and its trap
+   AGENT-BRIEF.md                hand this to your AI
+```
+
+**It changes nothing in your projects.** Everything it writes goes into that one folder. Add
+`--no-ai` and it will not read your AI configuration at all.
+
+If the folder you point at holds nothing project-shaped, it refuses and says so rather than
+returning a confident, meaningless clean result.
+
+### Or run the pieces yourself
+
+```bash
+node baseline.mjs .. --save --report   # the before-picture
+node sweep.mjs ../your-repo            # what nothing reads
+node reach.mjs ../your-repo            # has a real person ever used this
+node drift.mjs ../your-repo            # what is quietly decaying
+node fix.mjs ../your-repo --brief      # what to do about all of it
+```
 
 > **Scope, stated up front.** `reach.mjs`, `drift.mjs` and the spine are **language-agnostic** —
 > they work the same on Python, Go, Swift or anything else. `sweep.mjs` analyses **JavaScript,

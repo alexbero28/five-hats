@@ -18,7 +18,9 @@ const bad = (m) => { fail.push(m); console.log(`  FAIL ${m}`); };
 console.log('five-hats-kit verify\n');
 
 const CHECKS = ['sweep.mjs', 'reach.mjs', 'drift.mjs', 'baseline.mjs', 'fix.mjs'];
-const TOOLS = ['bin/project.mjs', 'bin/secret-guard.mjs'];
+// start.mjs is checked for presence and parse but NOT run here: it refuses (exit 1) when its
+// target holds no project-shaped folders, which is correct behaviour and would fail this gate.
+const TOOLS = ['bin/project.mjs', 'bin/secret-guard.mjs', 'start.mjs'];
 
 // 1. Everything the README promises is actually here.
 for (const f of [...CHECKS, ...TOOLS, 'README.md', 'DOCTRINE.md', 'SETUP.md', 'projects.example.json', '.private-terms.example']) {
