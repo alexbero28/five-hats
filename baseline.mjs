@@ -6,6 +6,7 @@
 //   node baseline.mjs --save              also write baseline-<date>.json here
 //   node baseline.mjs --compare <file>    what moved since that snapshot
 //   node baseline.mjs --registry projects.json    measure every project you own
+//   node baseline.mjs --no-ai              skip reading the AI config entirely
 //
 // READ-ONLY except for the one file --save writes, in this folder, when you ask for it.
 // It reads. It counts. It never edits your projects, never touches your AI config, never
@@ -62,9 +63,13 @@ else for (const r of sweep) {
   code.orphans += (r.orphans || []).length;
   code.testOnly += (r.testOnly || []).length;
   code.writerless += (r.writerless || []).length;
-  // A project with other languages present and nothing scanned is a BLIND SPOT, not a clean one.
-  if (!r.error && !r.scanned && (r.otherLangs || []).length) {
-    code.unscanned.push({ project: r.project, langs: r.otherLangs });
+  // Languages sweep DETECTED but did not analyse are blind spots, and they must surface here
+  // whether or not anything else in the project scanned fine. (This read `r.otherLangs` until
+  // sweep grew per-language reporting -- a field the producer had renamed and this consumer was
+  // still asking for, so every blind spot silently vanished from the baseline. Exactly the defect
+  // class `find-orphaned-output` exists to catch, caught in this kit's own pipeline.)
+  for (const n of (r.notAnalysed || [])) {
+    code.unscanned.push({ project: r.project, lang: n.lang, files: n.files, why: n.why });
   }
 }
 
@@ -106,8 +111,15 @@ if (registry && existsSync(registry)) {
 
 // ---- 5. the AI setup itself -------------------------------------------------------------------
 // Counting only. See the header: existence is not use, and this cannot close that gap.
+// --no-ai skips this section entirely. Counting somebody's AI configuration is reasonable on your
+// own machine and presumptuous on someone else's, and "you can turn it off" is worth more than any
+// assurance about what it does. When skipped it is reported as skipped, never as a zero.
 const claudeDir = join(os.homedir(), '.claude');
-const ai = { present: existsSync(claudeDir), skills: 0, agents: 0, instructionBytes: 0, biggest: null, note: null };
+const skipAi = flag('no-ai');
+const ai = {
+  present: !skipAi && existsSync(claudeDir),
+  skipped: skipAi, skills: 0, agents: 0, instructionBytes: 0, biggest: null, note: null,
+};
 if (ai.present) {
   const count = (sub) => { try { return readdirSync(join(claudeDir, sub)).length; } catch { return 0; } };
   ai.skills = count('skills');
@@ -225,9 +237,9 @@ console.log('  CODE NOTHING READS');
 if (code.error) console.log(`     could not measure: ${code.error}`);
 else {
   console.log(`     ${code.deadDirs} dead director(ies) · ${code.orphans} orphan(s) · ${code.testOnly} test-only · ${code.writerless} writerless`);
-  console.log(`     across ${code.scanned} JavaScript file(s) actually scanned`);
+  console.log(`     across ${code.scanned} file(s) actually analysed`);
   for (const u of code.unscanned) {
-    console.log(`     NOT CHECKED  ${u.project} — ${u.langs.join(', ')} present, no JavaScript. Treat as unscanned, not clean.`);
+    console.log(`     NOT ANALYSED  ${u.project} — ${u.lang} (${u.files} file(s)). Treat as unscanned, not clean.`);
   }
 }
 console.log('');
@@ -249,7 +261,8 @@ else {
 console.log('');
 
 console.log('  YOUR AI SETUP');
-if (!ai.present) console.log('     no ~/.claude directory found — nothing to count');
+if (ai.skipped) console.log('     SKIPPED at your request (--no-ai) — not counted, not a zero');
+else if (!ai.present) console.log('     no ~/.claude directory found — nothing to count');
 else {
   console.log(`     ${ai.skills} skill(s) · ${ai.agents} agent(s) · ${ai.instructionBytes} bytes of standing instructions`);
   if (ai.biggest) console.log(`     largest instruction file: ${ai.biggest.file} (${ai.biggest.bytes} bytes)`);
@@ -313,7 +326,7 @@ Nothing here is an estimate; it is a count taken just now of what is on this dis
 <p style="margin:0">${code.deadDirs} dead director${code.deadDirs === 1 ? 'y' : 'ies'} ·
 ${code.orphans} orphan${code.orphans === 1 ? '' : 's'} · ${code.testOnly} test-only ·
 ${code.writerless} writerless <span class="gap">— across ${code.scanned} file(s) actually scanned</span></p>
-${code.unscanned.length ? `<p class="alert">Not checked — no JavaScript found in: ${code.unscanned.map((u) => `${esc(u.project)} (${esc(u.langs.join(', '))})`).join(', ')}. Treat as unscanned, not clean.</p>` : ''}
+${code.unscanned.length ? `<p class="alert">Not analysed: ${code.unscanned.map((u) => `${esc(u.project)} — ${esc(u.lang)} (${u.files} file(s))`).join(', ')}. Treat as unscanned, not clean.</p>` : ''}
 </div>
 
 <h2>What is decaying</h2>
@@ -325,7 +338,9 @@ ${decay.top.length ? `<ul>${decay.top.map((t) => `<li>${esc(t)}</li>`).join('')}
 
 <h2>Your AI setup</h2>
 <div class="card">
-${ai.present
+${ai.skipped
+    ? '<p style="margin:0">Skipped at your request (<code>--no-ai</code>) — not counted, and not a zero.</p>'
+    : ai.present
     ? `<p style="margin:0">${ai.skills} skill(s) · ${ai.agents} agent(s) · ${ai.instructionBytes} bytes of standing instructions${ai.biggest ? ` · largest: ${esc(ai.biggest.file)} (${ai.biggest.bytes} bytes)` : ''}</p>
 <p class="note"><strong>This counts what exists. It cannot tell you what has ever run.</strong>
 A skill file and a skill that has fired are indistinguishable from the filesystem. Nothing on disk
