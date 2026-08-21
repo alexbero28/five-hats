@@ -69,8 +69,9 @@ ever get, because it's the only run where nobody has been managing to the metric
 Two findings tend to land hardest: a **DEAD DIR** you'd forgotten was in there, and a project
 `reach` says **nobody has ever used.**
 
-> **What these cannot see.** `sweep.mjs` reads **JavaScript only**. Point it at a Python, PHP, Ruby
-> or Go project and it will tell you it scanned nothing rather than pretending you're clean.
+> **What these cannot see.** `reach.mjs` and `drift.mjs` are language-agnostic. `sweep.mjs`
+> analyses JavaScript, TypeScript and Python, and *names* the languages it will not analyse
+> instead of skipping them silently — `node sweep.mjs --langs` prints the full table.
 > `reach.mjs` says **"can't tell"** when it doesn't recognise your folder names. `drift.mjs` needs
 > git for six of its eight checks.
 

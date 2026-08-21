@@ -36,11 +36,13 @@ because you asked it to.
 
 If you only ever use this repo for those commands, it was worth cloning.
 
-> **Scope, stated up front.** `sweep.mjs` reads **JavaScript only** (`.js` `.mjs` `.cjs`). Point it
-> at a Python, PHP, Ruby or Go project and it will tell you it scanned nothing rather than
-> pretending you're clean. `reach.mjs` guesses at folder names and says **"can't tell"** when it
-> doesn't recognise yours. `drift.mjs` needs git for six of its eight checks. Knowing what a tool
-> cannot see is worth more than a clean report from one that was blind.
+> **Scope, stated up front.** `reach.mjs`, `drift.mjs` and the spine are **language-agnostic** —
+> they work the same on Python, Go, Swift or anything else. `sweep.mjs` analyses **JavaScript,
+> TypeScript and Python**; it detects Go, Rust, Ruby and PHP and says plainly that it is not
+> analysing them, and why. Run `node sweep.mjs --langs` to see the whole table.
+> `reach.mjs` guesses at folder names and says **"can't tell"** when it doesn't recognise yours.
+> `drift.mjs` needs git for six of its eight checks. Knowing what a tool cannot see is worth more
+> than a clean report from one that was blind.
 
 ---
 
@@ -122,6 +124,22 @@ Finds code nothing reads. Four checks:
 | **TEST-ONLY** | Imported by tests and nothing else. The suite stays green while the code is dead. |
 | **ORPHAN** | A module nothing imports at all. |
 | **WRITERLESS** | A zero-byte file whose name appears nowhere — nothing will ever write it. |
+
+**Languages.** Different languages name modules in completely different ways, and guessing produces
+confident nonsense rather than a missed finding. Measured on a real 187-file Python project: only
+**11 of 40** live modules are referenced by filename, while **40 of 40** are referenced by import.
+So "just add `.py` to the extension list" would report 29 of 40 live modules dead — a 72%
+false-positive rate, worse than no check at all.
+
+| | |
+|---|---|
+| **JavaScript · TypeScript** | dead dir · test-only · orphan |
+| **Python** | test-only · orphan — *not* dead dir, because the package directory usually **is** the project, so "nothing outside reaches it" is trivially true |
+| **Go · Rust · Ruby · PHP** | detected and declared, **not** analysed. Go imports a package path, never a filename, so no per-file reference exists to count |
+
+If your project loads modules **dynamically** — `importlib.import_module()`, `await import(path)` —
+sweep says so and tells you to check ORPHAN findings against your plugin wiring, because no amount
+of reading source can see a reference built at runtime.
 
 It is deliberately quiet about things that only *look* dead: scratch folders, `archive/`, vendored
 and minified assets, browser userscripts, and anything named in `package.json` scripts. If your
