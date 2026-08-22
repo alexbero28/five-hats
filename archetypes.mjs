@@ -214,10 +214,29 @@ if (!ai.files.length && !ai.skills && !ai.mcp) {
 } else {
   for (const f of ai.files.slice(0, 5)) console.log(`     ${String(f.bytes).padStart(7)} bytes  ${f.file}`);
   console.log(`     ${ai.skills} skill(s) · ${ai.agents} agent(s) · ${ai.commands} command(s) · ${ai.mcp} MCP server(s) · ${ai.hooks} hook event(s)`);
-  if (ai.bytes > 20000) {
-    console.log(`     ! ${ai.bytes} bytes of standing instructions. Past about 20 KB these stop being read`);
-    console.log('       carefully by anyone, including the model. Ours reached 3,217 words and');
-    console.log('       silently broke the tool that parsed it. Nothing complained for weeks.');
+  // ALWAYS-ON vs PER-PROJECT. Summing every instruction file in a tree and calling the total
+  // "standing instructions" is wrong, and wrong in the direction that causes bad decisions: a
+  // per-project CLAUDE.md loads ONLY when that project is the working directory, so files in
+  // different projects never sit in the same context window. This printed 71,448 bytes for a tree
+  // whose real always-on load was 6,887 — and the number was repeated to someone weighing whether
+  // their setup was over-constrained. A sum presented as a load is the same defect as every other
+  // one in this kit: a figure asserting more than its source supports.
+  const alwaysOn = ai.files.filter((f) => f.file.startsWith('~/')).reduce((n, f) => n + f.bytes, 0);
+  const perProject = ai.bytes - alwaysOn;
+  console.log(`     ${String(alwaysOn).padStart(6)} bytes load in EVERY session (machine-level)`);
+  if (perProject) {
+    console.log(`     ${String(perProject).padStart(6)} bytes across ${ai.files.length - ai.files.filter((f) => f.file.startsWith('~/')).length} project file(s) — each loads ONLY in its own project,`);
+    console.log('            so these never share a context window. Judge them one at a time.');
+  }
+  const worst = ai.files.filter((f) => !f.file.startsWith('~/')).sort((a, b) => b.bytes - a.bytes)[0];
+  if (alwaysOn > 20000) {
+    console.log(`     ! the always-on load is over 20 KB. Past that these stop being read carefully`);
+    console.log('       by anyone, including the model, and a strong model can spend capability');
+    console.log('       satisfying the framework instead of the problem.');
+  } else if (worst && worst.bytes > 15000) {
+    console.log(`     ! ${worst.file} is ${worst.bytes} bytes on its own. It only loads in that`);
+    console.log('       project, so it is not an always-on cost — but check it is still a live');
+    console.log('       project before carrying that much instruction into every session there.');
   }
   console.log('');
 }
