@@ -127,7 +127,11 @@ esac
 # checks happen without anyone deciding to run them. Cheap, silent when fresh, and it CANNOT
 # silently die the way a cron job can. Never blocks: a nag that can fail a commit is a nag
 # nobody keeps.
-"$NODE" '${fwd(path.join(HERE, 'pulse.mjs'))}' --quiet 2>/dev/null || true
+# --registry is PINNED to the one this repo was installed with. Without it pulse fell back to
+# the kit's own projects.json, so committing in one repo printed warnings about somebody else's
+# projects entirely — a finding attached to the wrong thing is worse than no finding, because
+# the reader goes looking in a place that was never the problem.
+"$NODE" '${fwd(path.join(HERE, 'pulse.mjs'))}' --quiet --registry '${fwd(REG_PATH)}' 2>/dev/null || true
 exec "$NODE" "$GUARD" --${mode === 'pre-push' ? 'push' : 'staged'}
 `;
 }
@@ -452,6 +456,28 @@ if (GLOBAL) {
 const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR
   ? path.resolve(process.env.CLAUDE_CONFIG_DIR)
   : path.join(os.homedir(), '.claude');
+
+// THE REVERSIBILITY HOLE. FIVE_HATS_HOME sandboxes the MANIFEST, but the skills destination came
+// from CLAUDE_CONFIG_DIR / the real homedir — so a run somebody believed was isolated wrote nine
+// live directories and recorded them in a throwaway file. A later `--uninstall` against the real
+// home then reported "nothing recorded as installed" while all nine sat there. The undo record
+// did not cover everything the tool wrote, which is the same class as every other bug here: a
+// record asserting completeness it did not have.
+//
+// A sandboxed manifest and a live destination cannot both be right. If someone has isolated the
+// home, they meant to isolate the run — so refuse rather than write where the undo cannot reach.
+if (APPLY && process.env.FIVE_HATS_HOME && !process.env.CLAUDE_CONFIG_DIR
+    && fs.existsSync(path.join(os.homedir(), '.claude'))) {
+  console.error(`\n  ${B('REFUSING — this run is half-isolated.')}\n`);
+  console.error('  FIVE_HATS_HOME is set, so the manifest goes to a sandbox:');
+  console.error(`      ${fwd(HOME_DIR)}`);
+  console.error('  But CLAUDE_CONFIG_DIR is not, so the skills would go to your REAL config:');
+  console.error(`      ${fwd(path.join(os.homedir(), '.claude', 'skills'))}\n`);
+  console.error('  Those nine directories would be live, and --uninstall against your real home');
+  console.error('  would find no record of them. Set CLAUDE_CONFIG_DIR too, or unset');
+  console.error('  FIVE_HATS_HOME — but do not let the undo record cover less than the writes.\n');
+  process.exit(2);
+}
 const CLAUDE_HOME_SOURCE = process.env.CLAUDE_CONFIG_DIR ? 'CLAUDE_CONFIG_DIR' : 'default (~/.claude)';
 const SKILLS_SRC = path.join(HERE, 'skills');
 const SKILLS_DEST = path.join(CLAUDE_HOME, 'skills');

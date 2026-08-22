@@ -191,6 +191,53 @@ try {
   bad(`CLAUDE_CONFIG_DIR check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
 }
 
+// 4d-quater. THE UNDO RECORD MUST COVER EVERY WRITE. FIVE_HATS_HOME sandboxes the manifest, but
+//     the skills destination comes from CLAUDE_CONFIG_DIR / the homedir — so a run somebody
+//     believed was isolated wrote nine LIVE directories and recorded them in a throwaway file,
+//     and a later --uninstall said "nothing recorded as installed" while all nine sat there.
+try {
+  const s = join(os.tmpdir(), 'five-hats-verify-halfiso');
+  fs.rmSync(s, { recursive: true, force: true });
+  fs.mkdirSync(join(s, 'fx', 'app'), { recursive: true });
+  writeFileSync(join(s, 'fx', 'app', 'package.json'), '{"name":"a"}\n');
+  const env = { ...process.env, FIVE_HATS_HOME: join(s, 'sandbox') };
+  delete env.CLAUDE_CONFIG_DIR;
+  let refused = false;
+  try {
+    execFileSync(process.execPath,
+      [join(root, 'install.mjs'), join(s, 'fx'), '--registry', join(s, 'p.json'), '--apply'],
+      { encoding: 'utf8', stdio: 'pipe', timeout: 60000, env });
+  } catch (e) { refused = /half-isolated/i.test(String(e.stdout || '') + String(e.stderr || '')); }
+  if (!refused) bad('installer allows a half-isolated apply — writes the undo record cannot reach');
+  else ok('installer refuses a half-isolated apply (sandboxed manifest, live skills)');
+  fs.rmSync(s, { recursive: true, force: true });
+} catch (e) {
+  bad(`half-isolation check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
+
+// 4d-quinquies. The hook must pin pulse to the registry THIS repo was installed with. Falling
+//     back to the kit's own projects.json printed warnings about unrelated projects on commit,
+//     and a finding attached to the wrong thing sends the reader somewhere that was never wrong.
+try {
+  const s = join(os.tmpdir(), 'five-hats-verify-pin');
+  fs.rmSync(s, { recursive: true, force: true });
+  fs.mkdirSync(join(s, 'fx', 'app'), { recursive: true });
+  writeFileSync(join(s, 'fx', 'app', 'package.json'), '{"name":"a"}\n');
+  spawnSync('git', ['init', '-q'], { cwd: join(s, 'fx', 'app') });
+  const regPath = join(s, 'mine.json');
+  execFileSync(process.execPath,
+    [join(root, 'install.mjs'), join(s, 'fx'), '--registry', regPath, '--apply'],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 60000,
+      env: { ...process.env, FIVE_HATS_HOME: join(s, 'h'), CLAUDE_CONFIG_DIR: join(s, 'cfg') } });
+  const hook = readFileSync(join(s, 'fx', 'app', '.git', 'hooks', 'pre-commit'), 'utf8');
+  if (!hook.includes('--registry') || !hook.includes('mine.json')) {
+    bad('hook does not pin pulse to the registry this repo was installed with');
+  } else ok('hook pins pulse to its own registry, not the kit default');
+  fs.rmSync(s, { recursive: true, force: true });
+} catch (e) {
+  bad(`registry-pin check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
+
 // 4e. THE SKILLS. The kit shipped nine and installed none — files in a folder are not behaviour.
 //     The installer must offer them, and must NEVER overwrite one the person already has.
 try {
@@ -319,7 +366,10 @@ if (!hasGit) {
   ok('installer round trip SKIPPED — git not found on this machine. NOT a clean result.');
 } else {
   const sb = fs.mkdtempSync(join(os.tmpdir(), 'five-hats-verify-'));
-  const env = { ...process.env, FIVE_HATS_HOME: join(sb, 'home') };
+  // CLAUDE_CONFIG_DIR is set alongside FIVE_HATS_HOME on purpose: a run that sandboxes the
+  // manifest but not the skills destination is exactly what install now refuses, and this check
+  // was doing it. The rule caught the kit's own gate — which is the rule working.
+  const env = { ...process.env, FIVE_HATS_HOME: join(sb, 'home'), CLAUDE_CONFIG_DIR: join(sb, 'cfg') };
   const reg = join(sb, 'projects.json');
   const inst = (args) => spawnSync(process.execPath, [join(root, 'install.mjs'), ...args],
     { encoding: 'utf8', env, timeout: 120000 });
