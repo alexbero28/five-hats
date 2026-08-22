@@ -133,6 +133,37 @@ lived for two months.
 
 ---
 
+## `pulse.mjs` — the trigger, and the reason any of this happens
+
+Every check here is good and none of them matter, because nothing makes you run them. That is the
+diagnosis, not a detail: cleanup has no deadline, "has anyone used this" has no dashboard, and
+decay is silent by definition. A tool you have to remember loses to whatever is making noise today.
+
+```bash
+node pulse.mjs           # the brief: anything serious, and how stale you are
+node pulse.mjs --quiet   # prints NOTHING when everything is fine
+```
+
+`install.mjs` wires it into your git hooks, so it runs when you commit. `start.mjs` stamps the
+date every time the full pass runs. After two weeks without one:
+
+```
+  five hats · kit 0.2.0
+  The full pass has not run in 20 days — the checks nothing triggers are the
+  three that stop happening first.
+     node start.mjs <your-projects>
+```
+
+**Why a file and not a cron job.** cron, launchd and Task Scheduler are three different codepaths,
+they fail invisibly, and nothing in this kit could ever tell you one had stopped firing — the exact
+*configured versus actually ran* gap `archetypes.mjs` exists to expose. A staleness stamp on disk
+has none of that. If the pass has not run, the number gets bigger, and the number is right there.
+
+It is **silent when everything is fresh**. A nag that prints every time becomes wallpaper, and
+wallpaper is how a real finding gets skimmed past.
+
+---
+
 ## `archetypes.mjs` — the one that reads your setup, not your code
 
 Every other check here reads **code**. This one reads the **operating setup around it** and asks

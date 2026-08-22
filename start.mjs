@@ -203,6 +203,13 @@ if (fs.existsSync(brief)) { fs.renameSync(brief, path.join(OUT, 'AGENT-BRIEF.md'
 console.log('      the lanes, the seven rules, your findings, and the trap on each one');
 
 // ---- hand it over ---------------------------------------------------------------------------------
+// Stamp that the pass ran. This is what makes pulse.mjs able to nag later — a trigger needs
+// something to measure staleness AGAINST, and nobody writes that timestamp by hand.
+try {
+  execFileSync(process.execPath, [path.join(HERE, 'pulse.mjs'), '--record', '--quiet', '--target', target],
+    { stdio: 'pipe', timeout: 20000 });
+} catch { /* a missing stamp costs a nag, never a run */ }
+
 const rel = path.relative(process.cwd(), OUT) || OUT;
 if (failures.length) {
   console.log(`\n${B(`  INCOMPLETE — ${failures.join(', ')} did not finish.`)}`);

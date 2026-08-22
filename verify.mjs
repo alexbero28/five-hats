@@ -20,7 +20,7 @@ const ok = (m) => console.log(`  ok   ${m}`);
 const bad = (m) => { fail.push(m); console.log(`  FAIL ${m}`); };
 console.log('five-hats-kit verify\n');
 
-const CHECKS = ['sweep.mjs', 'reach.mjs', 'drift.mjs', 'baseline.mjs', 'fix.mjs', 'hotspots.mjs', 'archetypes.mjs'];
+const CHECKS = ['sweep.mjs', 'reach.mjs', 'drift.mjs', 'baseline.mjs', 'fix.mjs', 'hotspots.mjs', 'archetypes.mjs', 'pulse.mjs'];
 // start.mjs is checked for presence and parse but NOT run here: it refuses (exit 1) when its
 // target holds no project-shaped folders, which is correct behaviour and would fail this gate.
 // install.mjs and results.mjs refuse for the same reason, and both get their own full-exercise
@@ -95,6 +95,77 @@ try {
   ok('bin/secret-guard.mjs runs and finds no secret in this kit');
 } catch (e) {
   bad(`secret-guard flagged this kit or failed: ${String(e.stdout || e.stderr || e.message).split('\n')[0]}`);
+}
+
+// 4d. THE TRIGGER. pulse is the only reason the checks happen without somebody deciding to, so
+//     its two states both need proving: silent when fresh (or it becomes wallpaper and real
+//     findings get skimmed), loud when stale (or it is not a trigger at all).
+try {
+  const ph = join(root, '.verify-pulse');
+  const env = { ...process.env, FIVE_HATS_HOME: ph };
+  // Strip ANSI before asserting. The stale line reads `has not run in ${B('30 days')}`, so a
+  // naive regex fails on the bold escape sitting between the words — a check that fails for a
+  // reason that has nothing to do with the behaviour is worse than no check.
+  const strip = (t) => t.replace(/\[[0-9;]*m/g, '');
+  const run = (args) => strip(execFileSync(process.execPath, [join(root, 'pulse.mjs'), ...args],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 30000, env }));
+
+  const never = run([]);
+  if (!/never run/i.test(never)) bad('pulse: a machine that has never run the pass is not told so');
+  else ok('pulse says so when the full pass has never run');
+
+  run(['--record', '--quiet']);
+  const fresh = run(['--quiet']);
+  if (fresh.trim()) bad('pulse: --quiet printed on a fresh stamp — it will become wallpaper');
+  else ok('pulse is silent when the pass is fresh');
+
+  // age the stamp past the window and demand the nag
+  const sf = join(ph, 'last-pass.json');
+  const j = JSON.parse(readFileSync(sf, 'utf8'));
+  j.lastPass = new Date(Date.now() - 30 * 86400000).toISOString();
+  writeFileSync(sf, JSON.stringify(j));
+  const stale = run(['--quiet']);
+  if (!/has not run in [0-9]+ days/i.test(stale)) bad('pulse: a 30-day-stale setup was not nagged');
+  else ok('pulse nags when the pass has gone stale');
+
+  fs.rmSync(ph, { recursive: true, force: true });
+} catch (e) {
+  bad(`pulse checks failed: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
+
+// 4e. THE SKILLS. The kit shipped nine and installed none — files in a folder are not behaviour.
+//     The installer must offer them, and must NEVER overwrite one the person already has.
+try {
+  const fakeHome = join(root, '.verify-skillhome');
+  fs.mkdirSync(join(fakeHome, '.claude', 'skills'), { recursive: true });
+  // install REFUSES a target with no project-shaped folders — correct behaviour, so give it one.
+  const fxRoot = join(root, '.verify-sk-fx');
+  fs.mkdirSync(join(fxRoot, 'app'), { recursive: true });
+  writeFileSync(join(fxRoot, 'app', 'package.json'), '{"name":"a"}\n');
+  const env = { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome, FIVE_HATS_HOME: join(root, '.verify-sk-home') };
+  const dry = execFileSync(process.execPath,
+    [join(root, 'install.mjs'), fxRoot, '--registry', join(root, '.verify-sk.json')],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 60000, env });
+  const offered = (dry.match(/WRITE .*skills\//g) || []).length;
+  const have = readdirSync(join(root, 'skills')).length;
+  if (offered !== have) bad(`installer offered ${offered} skills, kit ships ${have}`);
+  else ok(`installer offers all ${have} skills on a machine that has none`);
+
+  // now plant one and prove it is refused rather than replaced
+  fs.mkdirSync(join(fakeHome, '.claude', 'skills', 'watch-for-drift'), { recursive: true });
+  writeFileSync(join(fakeHome, '.claude', 'skills', 'watch-for-drift', 'SKILL.md'), 'MINE — do not overwrite\n');
+  const dry2 = execFileSync(process.execPath,
+    [join(root, 'install.mjs'), fxRoot, '--registry', join(root, '.verify-sk.json')],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 60000, env });
+  if (!/already present and NOT overwritten/.test(dry2) || /WRITE .*watch-for-drift/.test(dry2)) {
+    bad('installer would overwrite a skill the user already had');
+  } else ok('installer refuses to overwrite an existing skill, and names it');
+
+  fs.rmSync(fakeHome, { recursive: true, force: true });
+  fs.rmSync(join(root, '.verify-sk-home'), { recursive: true, force: true });
+  fs.rmSync(fxRoot, { recursive: true, force: true });
+} catch (e) {
+  bad(`skill-install checks failed: ${String(e.stderr || e.message).split('\n')[0]}`);
 }
 
 // 5. Nothing personal ships. This kit is meant to be handed to strangers, so the check that it

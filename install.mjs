@@ -123,6 +123,11 @@ fi
 case "$("$NODE" --version 2>/dev/null)" in
   v[0-9].*|v1[0-7].*) skip "node $("$NODE" --version 2>/dev/null) is older than the 18 this kit needs" ;;
 esac
+# The PULSE — the staleness nag. This is the trigger the whole kit turns on: it is why the
+# checks happen without anyone deciding to run them. Cheap, silent when fresh, and it CANNOT
+# silently die the way a cron job can. Never blocks: a nag that can fail a commit is a nag
+# nobody keeps.
+"$NODE" '${fwd(path.join(HERE, 'pulse.mjs'))}' --quiet 2>/dev/null || true
 exec "$NODE" "$GUARD" --${mode === 'pre-push' ? 'push' : 'staged'}
 `;
 }
@@ -418,6 +423,50 @@ if (GLOBAL) {
         continue;
       }
       steps.push(writeHook(dest, t, `hook-${f}`));
+    }
+  }
+}
+
+// -- step: the skills ---------------------------------------------------------------------------
+// The kit SHIPPED nine skills and installed none of them — SETUP.md told the reader to copy them
+// by hand, which in practice means they sit in a folder doing nothing. Shipping files is not
+// shipping behaviour, and the skills are the only part of this kit that changes how the AI
+// actually works rather than what it reports. That gap is the same "configured vs fired"
+// distinction archetypes.mjs was written to expose, left open inside the installer itself.
+//
+// Claude Code only, because ~/.claude is its directory. Absent = skipped and SAID, never assumed.
+const CLAUDE_HOME = path.join(os.homedir(), '.claude');
+const SKILLS_SRC = path.join(HERE, 'skills');
+const SKILLS_DEST = path.join(CLAUDE_HOME, 'skills');
+if (fs.existsSync(SKILLS_SRC)) {
+  if (!fs.existsSync(CLAUDE_HOME)) {
+    skipped.push(`skills — no ${fwd(CLAUDE_HOME)} on this machine (Claude Code not installed).`
+      + ' The tools do not need it; the skills only load there.');
+  } else {
+    let available = [];
+    try { available = fs.readdirSync(SKILLS_SRC).filter((d) => fs.existsSync(path.join(SKILLS_SRC, d, 'SKILL.md'))); }
+    catch { available = []; }
+    // NEVER overwrite a skill they already have. A name collision is somebody else's work, and
+    // silently replacing it is exactly the class of hidden change this installer refuses to make.
+    const collisions = available.filter((d) => fs.existsSync(path.join(SKILLS_DEST, d)));
+    const fresh = available.filter((d) => !collisions.includes(d));
+    if (collisions.length) {
+      skipped.push(`${collisions.length} skill(s) already present and NOT overwritten: ${collisions.join(', ')}.`
+        + ' Yours stay exactly as they are — compare them by hand if you want ours.');
+    }
+    for (const d of fresh) {
+      const from = path.join(SKILLS_SRC, d, 'SKILL.md');
+      const to = path.join(SKILLS_DEST, d, 'SKILL.md');
+      const text = readIf(from);
+      steps.push({
+        line: `WRITE    ${fwd(to)}`,
+        detail: `${Buffer.byteLength(text)} bytes — the "${d}" skill. Loads on a trigger, costs nothing until it fires`,
+        do() {
+          fs.mkdirSync(path.dirname(to), { recursive: true });
+          record({ action: 'write', path: to, kind: `skill-${d}`, sha256: sha(Buffer.from(text)), bytes: Buffer.byteLength(text) });
+          fs.writeFileSync(to, text);
+        },
+      });
     }
   }
 }
