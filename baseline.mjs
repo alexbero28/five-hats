@@ -194,6 +194,27 @@ if (flag('compare')) {
   const prev = JSON.parse(readFileSync(prevPath, 'utf8'));
   console.log(`# Baseline comparison\n`);
   console.log(`  before  ${prev.takenAt}   after  ${snapshot.takenAt}\n`);
+
+  // A COMPARISON IS ONLY A COMPARISON IF BOTH SIDES LOOKED AT THE SAME THING.
+  // Run this with a registry whose paths point at another machine and the after-run scans zero
+  // files — then every count drops to nought and this printed "orphaned modules 158 -> 0, -158,
+  // IMPROVED" with a green tick. A run that saw nothing produced the most flattering result
+  // available. That is the defect this whole kit is named for, sitting in the one function whose
+  // entire job is to say whether things got better.
+  const measuredNothing = snapshot.code.scanned === 0 && (prev.code.scanned || 0) > 0;
+  const scopeShift = prev.governance.projects && gov.projects
+    && Math.abs(prev.governance.projects - gov.projects) > 0;
+  if (measuredNothing) {
+    console.log(`  ${'✖'} REFUSING TO COMPARE — the after-run scanned 0 files, the before-run scanned ${prev.code.scanned}.`);
+    console.log('     Every count would drop to zero and read as improvement. Nothing was cleaned;');
+    console.log('     nothing was looked at. Check that the registry paths exist on THIS machine.\n');
+    process.exit(2);
+  }
+  if (scopeShift) {
+    console.log(`  ! SCOPE CHANGED — ${prev.governance.projects} project(s) before, ${gov.projects} now.`);
+    console.log('     Rows below mix real movement with projects entering or leaving the registry.');
+    console.log('     A count that fell because something stopped being measured is not an improvement.\n');
+  }
   // Direction matters per row: fewer findings is better, more reach is better.
   const rows = [
     ['projects with a verify', prev.governance.withVerify, gov.withVerify, 'up'],

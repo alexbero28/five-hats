@@ -238,6 +238,41 @@ try {
   bad(`registry-pin check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
 }
 
+// 4d-sexies. A COMPARISON THAT SAW NOTHING MUST NOT REPORT IMPROVEMENT. Point --compare at a
+//     registry whose paths are not on this machine: the after-run scans zero files, every count
+//     falls to nought, and the deltas read as the best result the tool can produce. Found by
+//     running it against a real report from another person's machine.
+try {
+  const s = join(os.tmpdir(), 'five-hats-verify-cmp');
+  fs.rmSync(s, { recursive: true, force: true });
+  fs.mkdirSync(s, { recursive: true });
+  // a "before" that measured plenty, and a registry pointing nowhere real
+  writeFileSync(join(s, 'before.json'), JSON.stringify({
+    takenAt: '2026-01-01', scope: 'registry:x', governance: { projects: 3, withVerify: 1, strengths: {} },
+    code: { scanned: 900, deadDirs: 4, orphans: 158, testOnly: 1, writerless: 0, unscanned: [] },
+    use: { reached: 1, never: 0, unknown: 0, missing: 0 },
+    decay: { serious: 9, warn: 1, info: 0, top: [], noRemote: 0, unpushed: 0, trackedSecret: 0 },
+    aiSetup: { present: false },
+  }));
+  writeFileSync(join(s, 'ghost.json'), JSON.stringify({
+    projects: { a: { path: join(s, 'nope-a'), verify: null, lane: 'tier1' },
+      b: { path: join(s, 'nope-b'), verify: null, lane: 'tier1' },
+      c: { path: join(s, 'nope-c'), verify: null, lane: 'tier1' } },
+  }));
+  let refused = false; let out = '';
+  try {
+    out = execFileSync(process.execPath, [join(root, 'baseline.mjs'),
+      '--registry', join(s, 'ghost.json'), '--compare', join(s, 'before.json'), '--no-ai'],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 90000 });
+  } catch (e) { out = String(e.stdout || ''); refused = true; }
+  if (/REFUSING TO COMPARE/.test(out)) ok('--compare refuses when the after-run scanned nothing');
+  else if (/improved/i.test(out)) bad('--compare reported IMPROVEMENT from a run that scanned zero files');
+  else bad('--compare neither refused nor explained a zero-scan comparison');
+  fs.rmSync(s, { recursive: true, force: true });
+} catch (e) {
+  bad(`zero-scan comparison check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
+
 // 4e. THE SKILLS. The kit shipped nine and installed none — files in a folder are not behaviour.
 //     The installer must offer them, and must NEVER overwrite one the person already has.
 try {
