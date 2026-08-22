@@ -118,3 +118,64 @@ jobs:
           node start.mjs fx --no-ai 2>&1 | grep -q "orphan-files" \
             || { echo "FAIL: a folder with files but no marker was silently skipped"; exit 1; }
           echo "unregistered folder correctly named"
+
+      # 7. THE INSTALLER, end to end, on all three operating systems. verify.mjs round-trips it
+      #    in a sandbox; this goes one step further and proves the installed hook actually FIRES
+      #    inside a real `git commit` — the one moment the whole guard exists for, and the one
+      #    moment no sandbox check can fake. GUI clients, minimal PATHs and CRLF shells all live
+      #    out here, which is exactly why this runs on the stranger's machines and not ours.
+      - name: installer round trip, and the hook must actually block a commit
+        shell: bash
+        run: |
+          set -eu
+          export FIVE_HATS_HOME="$PWD/fx-home"
+          # the DRY RUN is the default and must write nothing at all
+          node install.mjs fx --registry fx-projects.json | grep -q -- "--apply" \
+            || { echo "FAIL: dry run did not point at --apply"; exit 1; }
+          test ! -e fx-projects.json && test ! -e fx-home \
+            || { echo "FAIL: the dry run wrote something"; exit 1; }
+          node install.mjs fx --registry fx-projects.json --apply
+          test -f fx/js-app/.git/hooks/pre-commit || { echo "FAIL: hook not written"; exit 1; }
+          # the installer must NEVER write a verify or a non-tier1 lane — that is its contract
+          grep -q '"verify": null' fx-projects.json || { echo "FAIL: registry has no null verify"; exit 1; }
+          if grep -q '"lane": "fast"' fx-projects.json; then echo "FAIL: installer set a fast lane"; exit 1; fi
+          # the money shot: a staged secret file must be BLOCKED by the hook it just installed.
+          # The key is assembled from two halves because this workflow file is itself tracked —
+          # a whole example key written here tripped the kit's own audit during the build, which
+          # is the guard working exactly as designed, on its own test.
+          printf 'API_KEY=sk-''ant-abcdefghijklmnopqrstuvwxyz1234\n' > fx/js-app/.env
+          git -C fx/js-app add -f .env
+          if git -C fx/js-app -c user.email=ci@example.com -c user.name=CI commit -qm leak; then
+            echo "FAIL: the installed hook let a secret into history"; exit 1
+          fi
+          git -C fx/js-app reset -q && rm fx/js-app/.env
+          # a clean commit must still pass — a guard that blocks everything is a bricked machine
+          echo ok > fx/js-app/clean.txt && git -C fx/js-app add clean.txt
+          git -C fx/js-app -c user.email=ci@example.com -c user.name=CI commit -qm clean \
+            || { echo "FAIL: the hook blocked a clean commit"; exit 1; }
+          # idempotent, then reversible
+          node install.mjs fx --registry fx-projects.json --apply | grep -qi "nothing to do" \
+            || { echo "FAIL: second apply was not a no-op"; exit 1; }
+          node install.mjs --uninstall
+          test ! -e fx/js-app/.git/hooks/pre-commit || { echo "FAIL: uninstall left the hook"; exit 1; }
+          test ! -e fx-projects.json || { echo "FAIL: uninstall left the registry"; exit 1; }
+          test ! -e fx-home || { echo "FAIL: uninstall left the home"; exit 1; }
+          echo "installer round trip clean: disclosed, applied, blocked a secret, allowed a clean commit, uninstalled"
+
+      # 8. THE RESULTS PAGE, generated on a machine that is not ours, must keep its one promise:
+      #    nothing on it that identifies this machine, this tree, or these projects. The page is
+      #    designed to be handed to strangers; CI is the first stranger it meets.
+      - name: the results page must be presentable and path-free
+        shell: bash
+        run: |
+          set -eu
+          node results.mjs fx --no-ai
+          page=$(ls five-hats-report/results-*.html)
+          test -s "$page" || { echo "FAIL: results page missing or empty"; exit 1; }
+          if grep -qF "$PWD" "$page"; then echo "FAIL: the page leaks the working directory"; exit 1; fi
+          if grep -qF "$HOME" "$page"; then echo "FAIL: the page leaks the home directory"; exit 1; fi
+          if grep -q "js-app\|py-app" "$page"; then echo "FAIL: the page leaks project names"; exit 1; fi
+          grep -qi "earned" "$page" || { echo "FAIL: no earned section"; exit 1; }
+          grep -qi "install-set" "$page" || { echo "FAIL: no install-set section"; exit 1; }
+          grep -qi "could not be measured" "$page" || { echo "FAIL: no honesty section"; exit 1; }
+          echo "results page clean on a stranger's machine"

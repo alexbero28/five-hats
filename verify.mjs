@@ -6,10 +6,13 @@
 //
 //   node verify.mjs
 
-import { existsSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import fs, { existsSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import os from 'node:os';
+import { createHash } from 'node:crypto';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { KIT_VERSION } from './kit-version.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const fail = [];
@@ -20,7 +23,9 @@ console.log('five-hats-kit verify\n');
 const CHECKS = ['sweep.mjs', 'reach.mjs', 'drift.mjs', 'baseline.mjs', 'fix.mjs', 'hotspots.mjs', 'archetypes.mjs'];
 // start.mjs is checked for presence and parse but NOT run here: it refuses (exit 1) when its
 // target holds no project-shaped folders, which is correct behaviour and would fail this gate.
-const TOOLS = ['bin/project.mjs', 'bin/secret-guard.mjs', 'start.mjs'];
+// install.mjs and results.mjs refuse for the same reason, and both get their own full-exercise
+// checks (7 and 8 below) against a sandbox instead — running them bare would prove less.
+const TOOLS = ['bin/project.mjs', 'bin/secret-guard.mjs', 'start.mjs', 'install.mjs', 'results.mjs', 'kit-version.mjs'];
 
 // 1. Everything the README promises is actually here.
 for (const f of [...CHECKS, ...TOOLS, 'README.md', 'DOCTRINE.md', 'SETUP.md', 'projects.example.json', '.private-terms.example']) {
@@ -147,6 +152,171 @@ if (existsSync(sk)) {
   });
   badSkills.length ? bad(`skills missing frontmatter: ${badSkills.join(', ')}`)
     : ok(`${readdirSync(sk).length} skills well-formed`);
+}
+
+// 7. THE INSTALLER, round-tripped in a sandbox. install.mjs is the only file here that changes
+//    anything, so its whole contract is checked, not assumed: the dry run writes nothing, the
+//    apply writes only what it disclosed, a second apply proposes nothing, the hook it wires
+//    fails LOUD-BUT-OPEN when its runtime is gone, and uninstall leaves the tree byte-identical.
+//    Every clause below is a promise SETUP.md now makes to strangers; an unchecked promise is
+//    how the core.hooksPath bug shipped the first time.
+const BASH = (() => {
+  if (process.platform !== 'win32') return 'bash';
+  for (const c of ['C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files (x86)\\Git\\bin\\bash.exe']) {
+    if (existsSync(c)) return c;
+  }
+  return null;   // the WindowsApps stub is a lie; better to say "could not test" than to test wrong
+})();
+const hasGit = (() => { try { execFileSync('git', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; } })();
+
+function treeHash(root) {
+  // Content + relative path, sorted — mtimes deliberately excluded, bytes are the claim.
+  const files = [];
+  const walkT = (d) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      e.isDirectory() ? walkT(p) : files.push(p);
+    }
+  };
+  walkT(root);
+  const h = [];
+  for (const f of files.sort()) {
+    h.push(`${f.slice(root.length)}:${createHash('sha256').update(readFileSync(f)).digest('hex')}`);
+  }
+  return h.join('\n');
+}
+
+if (!hasGit) {
+  ok('installer round trip SKIPPED — git not found on this machine. NOT a clean result.');
+} else {
+  const sb = fs.mkdtempSync(join(os.tmpdir(), 'five-hats-verify-'));
+  const env = { ...process.env, FIVE_HATS_HOME: join(sb, 'home') };
+  const reg = join(sb, 'projects.json');
+  const inst = (args) => spawnSync(process.execPath, [join(root, 'install.mjs'), ...args],
+    { encoding: 'utf8', env, timeout: 120000 });
+  try {
+    const proj = join(sb, 'projects');
+    fs.mkdirSync(join(proj, 'app1'), { recursive: true });
+    fs.mkdirSync(join(proj, 'app2'), { recursive: true });
+    writeFileSync(join(proj, 'app1', 'package.json'), '{"name":"app1","scripts":{"test":"node -e 0"}}\n');
+    writeFileSync(join(proj, 'app2', 'main.py'), 'print(1)\n');
+    writeFileSync(join(proj, 'app2', 'requirements.txt'), '');
+    for (const a of ['app1', 'app2']) execFileSync('git', ['-C', join(proj, a), 'init', '-q'], { stdio: 'pipe' });
+    // app2 already has a hook that is NOT ours — it must survive install AND uninstall untouched.
+    writeFileSync(join(proj, 'app2', '.git', 'hooks', 'pre-commit'), '#!/bin/sh\necho theirs\n');
+
+    const virgin = treeHash(sb);
+
+    // 7a. the DRY RUN is the default and must write NOTHING.
+    const dry = inst([proj, '--registry', reg]);
+    if (dry.status === 0 && treeHash(sb) === virgin && !existsSync(join(sb, 'home'))) {
+      ok('install.mjs dry run discloses and writes nothing');
+    } else bad(`install.mjs dry run wrote something or failed (exit ${dry.status})`);
+
+    // 7b. apply does exactly what it said, and only tier1 / null-verify enters the registry.
+    const ap = inst([proj, '--registry', reg, '--apply']);
+    const regJson = existsSync(reg) ? JSON.parse(readFileSync(reg, 'utf8')) : null;
+    const entries = regJson ? Object.values(regJson.projects || {}) : [];
+    if (ap.status === 0
+      && existsSync(join(proj, 'app1', '.git', 'hooks', 'pre-commit'))
+      && existsSync(join(proj, 'app1', '.git', 'hooks', 'pre-push'))
+      && entries.length === 2
+      && entries.every((e) => e.verify === null && e.lane === 'tier1')
+      && readFileSync(join(proj, 'app2', '.git', 'hooks', 'pre-commit'), 'utf8').includes('theirs')) {
+      ok('install.mjs --apply wires hooks; never writes a verify, never a lane but tier1, never over an existing hook');
+    } else bad(`install.mjs --apply broke its contract (exit ${ap.status})`);
+
+    // 7c. the manifest exists, parses, and is stamped with the kit version.
+    const mf = join(sb, 'home', 'install-manifest.jsonl');
+    let lines = [];
+    try { lines = readFileSync(mf, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { /* falls through to bad */ }
+    if (lines.length && lines.every((l) => l.v === KIT_VERSION) && existsSync(join(sb, 'home', 'UNDO.md'))) {
+      ok(`install manifest is parseable, versioned (${lines.length} entries) and UNDO.md exists`);
+    } else bad('install manifest missing, unparseable, or unversioned');
+
+    // 7d. IDEMPOTENT — the second apply proposes nothing and appends nothing.
+    const again = inst([proj, '--registry', reg, '--apply']);
+    const linesAfter = readFileSync(mf, 'utf8').split('\n').filter(Boolean).length;
+    if (/nothing to do/i.test(again.stdout) && linesAfter === lines.length) {
+      ok('install.mjs is idempotent — a second apply proposes nothing');
+    } else bad('a second --apply proposed or wrote something');
+
+    // 7e. THE HOOK WITHOUT A RUNTIME. It must step aside with a message a human can tell apart
+    //     from both "clean" and "blocked", and it must exit 0 — a hook that bricks every commit
+    //     on a machine with no node visible is the worst outcome this kit can produce.
+    if (!BASH) {
+      ok('hook-without-node check SKIPPED — no usable bash found to run the hook. NOT a clean result.');
+    } else {
+      const hk = spawnSync(BASH, [join(proj, 'app1', '.git', 'hooks', 'pre-commit')],
+        { encoding: 'utf8', env: { ...env, FIVE_HATS_NODE: join(sb, 'no-such-node') }, cwd: join(proj, 'app1') });
+      const said = `${hk.stdout}${hk.stderr}`;
+      if (hk.status === 0 && /NOT checked for secrets/.test(said) && /SKIPPED/.test(said)) {
+        ok('the hook without node exits 0 and says, distinguishably, that nothing was scanned');
+      } else bad(`hook without node: exit ${hk.status}, message ${/NOT checked/.test(said) ? 'ok' : 'MISSING'}`);
+    }
+
+    // 8. THE RESULTS PAGE — checked BEFORE uninstall so the sandbox registry still exists, and
+    //    pinned to it with explicit --registry and --before flags. The first version of this
+    //    check let results.mjs auto-detect, and on a machine with a real five-hats-report/ the
+    //    auto-detection found the REAL baselines — so the check passed or failed depending on
+    //    what the machine happened to hold. A verify that depends on ambient state is the
+    //    board-lies-quietly defect again, inside the gate itself. Output goes to a SECOND temp
+    //    dir so 8's files cannot poison 7f's byte-identical comparison.
+    //
+    //    The page's one promise is "safe to hand to a stranger", so the check is on the BYTES:
+    //    no absolute path from this machine, no project name, the honesty sections present, the
+    //    version stamped, and the first run saying "first picture" instead of faking a delta.
+    const sb2 = fs.mkdtempSync(join(os.tmpdir(), 'five-hats-verify-out-'));
+    try {
+      const out1 = join(sb2, 'out1');
+      const r1 = spawnSync(process.execPath,
+        [join(root, 'results.mjs'), proj, '--registry', reg, '--before', 'none', '--out', out1, '--no-ai'],
+        { encoding: 'utf8', env, timeout: 300000 });
+      const page1 = existsSync(out1) ? readdirSync(out1).filter((f) => /^results-.*\.html$/.test(f)) : [];
+      const html1 = page1.length ? readFileSync(join(out1, page1[0]), 'utf8') : '';
+      const leak = [sb, sb.replace(/\\/g, '/'), os.homedir(), os.homedir().replace(/\\/g, '/'), 'app1']
+        .find((n) => n && html1.includes(n));
+      if (r1.status === 0 && html1.length
+        && html1.includes(KIT_VERSION) && /first picture/i.test(html1)
+        && /Earned/.test(html1) && /Install-set/.test(html1) && /could not be measured/i.test(html1)
+        && !leak && !/https?:\/\//.test(html1)) {
+        ok('results.mjs first run: honest, versioned, sectioned, and free of paths, names and external refs');
+      } else bad(`results.mjs first run failed the page gate (exit ${r1.status}${leak ? `, leaked: ${leak}` : ''})`);
+
+      // 8a. and with a before-picture, it must show movement rather than assert it.
+      const bj = spawnSync(process.execPath,
+        [join(root, 'baseline.mjs'), '--registry', reg, '--json', '--no-ai'],
+        { encoding: 'utf8', env, timeout: 300000 });
+      let compared = false;
+      try {
+        const prev = JSON.parse(bj.stdout);
+        prev.takenAt = '2020-01-01';
+        prev.code.orphans += 2;                       // a fake past, worse by exactly two
+        const bf = join(sb2, 'before.json');
+        writeFileSync(bf, JSON.stringify(prev));
+        const out2 = join(sb2, 'out2');
+        const r2 = spawnSync(process.execPath,
+          [join(root, 'results.mjs'), proj, '--registry', reg, '--before', bf, '--out', out2, '--no-ai'],
+          { encoding: 'utf8', env, timeout: 300000 });
+        const page2 = existsSync(out2) ? readdirSync(out2).filter((f) => /^results-.*\.html$/.test(f)) : [];
+        const html2 = page2.length ? readFileSync(join(out2, page2[0]), 'utf8') : '';
+        compared = r2.status === 0 && /before 2020-01-01/.test(html2) && />-2</.test(html2) && /improved/.test(html2);
+      } catch { /* compared stays false */ }
+      compared ? ok('results.mjs --before shows the actual delta (-2) instead of asserting improvement')
+        : bad('results.mjs --before did not render the known delta');
+    } finally {
+      fs.rmSync(sb2, { recursive: true, force: true });
+    }
+
+    // 7f. UNINSTALL — the tree comes back byte-identical, and the home folder is gone. Last,
+    //     so it also proves that generating the results pages above changed nothing in the tree.
+    const un = inst(['--uninstall']);
+    if (un.status === 0 && treeHash(sb) === virgin && !existsSync(join(sb, 'home'))) {
+      ok('install.mjs --uninstall restores the tree byte-identical');
+    } else bad(`uninstall left the tree changed (exit ${un.status})`);
+  } finally {
+    fs.rmSync(sb, { recursive: true, force: true });
+  }
 }
 
 console.log(fail.length ? `\nFAILED (${fail.length})` : '\nfive-hats-kit OK');

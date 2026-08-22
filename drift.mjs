@@ -108,11 +108,21 @@ for (const [name, cfg] of resolveTargets()) {
   } else {
     // 5. UNPUSHED WORK AGEING. Committed but never pushed is invisible to every other machine.
     const branch = git(root, 'git rev-parse --abbrev-ref HEAD');
-    const ahead = git(root, `git rev-list --count origin/${branch}..HEAD 2>/dev/null`);
+    let ahead = git(root, `git rev-list --count origin/${branch}..HEAD 2>/dev/null`);
+    let where = `${branch} is ahead of origin`;
+    if (ahead === null) {
+      // origin/<branch> does not exist — the branch has never been pushed at all (or HEAD is
+      // detached). The old code returned null here and reported NOTHING, which is the same
+      // fail-open found six times today: the WORST unpushed case — commits that exist on no
+      // remote anywhere — was the one case that produced no finding. Count against every
+      // remote instead, which is what "unpushed" actually means.
+      ahead = git(root, 'git rev-list --count HEAD --not --remotes');
+      where = `${branch} has never been pushed to any remote`;
+    }
     if (ahead && Number(ahead) > 0) {
       const when = git(root, 'git log -1 --format=%ct');
       const days = when ? Math.floor((Date.now() / 1000 - Number(when)) / 86400) : 0;
-      if (days >= 3) add('warn', name, `${ahead} commit(s) unpushed for ${days}d`, `${branch} is ahead of origin`);
+      if (days >= 3) add('warn', name, `${ahead} commit(s) unpushed for ${days}d`, where);
     }
   }
 

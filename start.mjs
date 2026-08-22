@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { KIT_VERSION } from './kit-version.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -39,7 +40,9 @@ const DIM = (s) => `\x1b[2m${s}\x1b[0m`;
 const step = (n, s) => console.log(`\n${B(`[${n}/6]`)} ${B(s)}`);
 
 // ---- 1. the ground --------------------------------------------------------------------------
-console.log(B('\n  Five Hats — full pass\n'));
+// The version prints because these runs come back to us in screenshots and pasted terminals,
+// and "which kit produced this?" must be answerable from the output itself.
+console.log(B(`\n  Five Hats — full pass (kit ${KIT_VERSION})\n`));
 console.log(DIM('  Read-only. Nothing in your projects is created, changed or deleted.'));
 console.log(DIM('  Everything produced goes into one output folder.\n'));
 
@@ -219,6 +222,12 @@ console.log('     and they cannot bite you.');
 console.log(`\n  3. Hand ${B('AGENT-BRIEF.md')} to your AI assistant. It carries how to work, not`);
 console.log('     just what to fix. Let it do the mechanical half while you watch, and make it');
 console.log('     bring you the judgment calls one at a time.');
+console.log(`\n  4. When you want the mechanical setup done for you: ${B('node install.mjs ' + (path.relative(process.cwd(), target) || '.'))}`);
+console.log('     shows the complete, literal list of what it would change — nothing happens');
+console.log('     until you add --apply, and --uninstall reverses all of it.');
+console.log(`\n  5. After some real work has happened, run ${B('node results.mjs ' + (path.relative(process.cwd(), target) || '.'))}.`);
+console.log('     It writes a before/after page you can print and hand to someone — which is');
+console.log('     why keeping today\'s baseline JSON matters: it is the "before" on that page.');
 console.log(`\n  ${DIM('Anything the checks could not see says so in its own file. Read those lines')}`);
 console.log(`  ${DIM('before treating a clean result as coverage.')}\n`);
 process.exit(0);

@@ -7,6 +7,7 @@
 //   node baseline.mjs --compare <file>    what moved since that snapshot
 //   node baseline.mjs --registry projects.json    measure every project you own
 //   node baseline.mjs --no-ai              skip reading the AI config entirely
+//   node baseline.mjs --json               the snapshot on stdout, nothing written (results.mjs eats this)
 //
 // READ-ONLY except for the one file --save writes, in this folder, when you ask for it.
 // It reads. It counts. It never edits your projects, never touches your AI config, never
@@ -103,6 +104,21 @@ else {
   decay.top = drift.filter((d) => d.sev === 'serious').slice(0, 5).map((d) => `${d.project}: ${d.what}`);
 }
 
+// ---- 3b. how many files are hot AND large AND untested ---------------------------------------
+// The same three-signal agreement fix.mjs uses — churn alone is not a finding, so this counts
+// only the files where the signals agree. Captured here because "hotspots cooled" is an EARNED
+// improvement, and it can only ever be shown if the before-picture recorded the heat. The first
+// baselines did not, so their comparisons must say "not measured before" instead of a delta —
+// this field is what stops the NEXT comparison having to say that.
+const hot = runCheck('hotspots.mjs', scope);
+const heat = { hot: 0, error: null };
+if (hot.__error) heat.error = hot.__error;
+else for (const r of hot) {
+  for (const f of (r.files || []).slice(0, 8)) {
+    if (f.changes >= 8 && f.lines >= 300 && (!f.tested || f.fixes >= 3)) heat.hot += 1;
+  }
+}
+
 // ---- 4. how much of what you own is actually governed ----------------------------------------
 const gov = { projects: 0, withVerify: 0, strengths: {}, error: null };
 if (registry && existsSync(registry)) {
@@ -159,8 +175,14 @@ const useGap = [
 const snapshot = {
   takenAt: new Date().toISOString().slice(0, 10),
   scope: registry ? `registry:${basename(registry)}` : target,
-  code, use, decay, governance: gov, aiSetup: ai,
+  code, use, decay, heat, governance: gov, aiSetup: ai,
 };
+
+// ---- machine-readable mode ---------------------------------------------------------------------
+// The snapshot on stdout, nothing written. This exists so results.mjs can consume the SAME
+// numbers this file computes instead of re-deriving them — two implementations of one count is
+// how a chart and a check end up disagreeing about the same disk.
+if (flag('json')) { console.log(JSON.stringify(snapshot, null, 2)); process.exit(0); }
 
 // ---- compare mode -----------------------------------------------------------------------------
 if (flag('compare')) {
@@ -183,11 +205,18 @@ if (flag('compare')) {
     ['serious drift', prev.decay.serious, decay.serious, 'down'],
     ['drift warnings', prev.decay.warn, decay.warn, 'down'],
   ];
+  // Heat entered the snapshot after the first baselines shipped. A missing field in an old file
+  // means NOT MEASURED THEN — printing "0 -> 3, worse" against a zero nobody counted would be
+  // inventing a "before" the person never had.
+  if (prev.heat && !prev.heat.error && !heat.error) rows.push(['hot untested files', prev.heat.hot, heat.hot, 'down']);
   for (const [label, a, b, good] of rows) {
     const d = b - a;
     const better = d === 0 ? '   ' : ((good === 'up' ? d > 0 : d < 0) ? ' ✓ ' : ' ! ');
     const sign = d > 0 ? `+${d}` : `${d}`;
     console.log(`  ${better} ${label.padEnd(28)} ${String(a).padStart(5)} -> ${String(b).padStart(5)}   ${d === 0 ? '' : sign}`);
+  }
+  if (!(prev.heat && !prev.heat.error) && !heat.error) {
+    console.log(`      hot untested files ${String(heat.hot).padStart(15)} now — not in the before-picture, so no delta can be claimed`);
   }
   console.log('\n  ✓ = moved the right way · ! = moved the wrong way · blank = unchanged');
   console.log('  A row that did not move is not a failure. Some of these should not move.');

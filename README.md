@@ -357,6 +357,71 @@ See `SETUP.md` for the hook files.
 
 ---
 
+## `install.mjs` — the second half, spelled out before it happens
+
+Everything above reads and prints. This is the one file in the kit that changes anything, and it
+runs under rules that exist because two shipped products died of per-step confirmation friction
+and a third kind of tool dies of hidden writes:
+
+```bash
+node install.mjs ~/your/projects            # DRY RUN — the complete literal list, nothing happens
+node install.mjs ~/your/projects --apply    # do exactly that list. This is the one consent.
+node install.mjs --uninstall                # replay the manifest in reverse; restore everything
+```
+
+The dry run is the default, and it prints **everything**: every path it will touch, every git
+config key with its current value, the exact bytes of every file it will write. `--apply` is one
+decision, made once, after reading — no per-step prompts, because a person asked to confirm
+twelve times stops reading after the second.
+
+What it does: creates your `projects.json` (every `verify` is **null** — yours to write — and
+every lane is `tier1`), wires the secret-guard as **per-repo** git hooks, and copies every
+baseline JSON to `~/.five-hats/` — because the before-picture currently lives inside the clone,
+where one re-clone destroys the only honest "before" you will ever have. Machine-wide hooks are
+an explicit opt-in (`--global-hooks`) that first names every repo whose own hooks would go dark.
+
+What it will never do: write a `verify` for a project (it may *suggest* one when it sees a test
+script — a verify a machine invented is a verify nobody trusts), set any lane but `tier1`,
+overwrite an existing hook, delete anything, commit, push, touch project source, or make a
+network request.
+
+Every change lands in an append-only manifest with the kit version stamped on it, `--uninstall`
+replays it in reverse — restoring prior values, refusing to delete anything you edited since —
+and `UNDO.md` says how to do the same by hand if this kit is ever gone. A second run proposes
+nothing: there is nothing left to propose.
+
+The hook it installs cannot brick a machine. A GUI git client with a minimal PATH and a hook
+that cannot find node would otherwise fail **every commit on the machine** for a person with no
+terminal open to read why. So the hook hunts for node, and when it truly cannot find one it
+steps aside *loudly* — the commit proceeds, the message says it was not scanned, nothing is ever
+blocked by absence. The verify proves this exact behaviour before every release.
+
+## `results.mjs` — the page you hand to someone
+
+The terminal output convinces the person who ran it. It convinces nobody else.
+
+```bash
+node results.mjs ~/your/projects     # writes five-hats-report/results-<date>.html
+```
+
+One self-contained HTML page: where you were, where you are, and the five-roles scorecard —
+printable, offline, no external anything. It compares against the **oldest** baseline it can
+find, because the first picture is the only one taken before anyone was managing to the metric.
+On a first run it says so plainly instead of faking a delta.
+
+The distinction that keeps the page honest: **earned versus install-set.** Some numbers move the
+moment the kit is wired — projects registered, commits scanned, roles with a trigger. Those are
+coverage, they are quarantined in their own section, and the page never counts them as progress.
+Earned numbers are the ones only work can move: dead code actually removed, a project that
+reached a real person, drift actually resolved, a hot file cooled. Rows that moved the *wrong*
+way stay on the page — a results document that only reports wins is an advertisement.
+
+The page deliberately contains **no absolute paths, no project names, no file names and no
+source** — counts travel safely, names do not — so it can be printed, mailed, or handed to a
+stranger exactly as written. A leak gate checks the rendered bytes before the file is written
+and refuses rather than ship a path. What could not be measured is printed *on the page*, not
+omitted.
+
 ## `skills/` — for Claude Code users
 
 Nine skills encoding the rules these tools came from — derive don't recall, the verify decides done,

@@ -86,6 +86,28 @@ at a time and re-run the baseline between them if you want to see each one's eff
 
 ## Part Two — the changes, each reversible
 
+### The short way — one disclosed, reversible install
+
+The mechanical parts of this half can be done for you:
+
+```bash
+node install.mjs ~/your/projects            # DRY RUN: the complete literal list. Nothing happens.
+node install.mjs ~/your/projects --apply    # do exactly that list — the one consent
+node install.mjs --uninstall                # put everything back
+```
+
+The dry run prints every path, every git config key with its current value, and the exact bytes
+it would write. It creates the registry (every `verify` null — Step 3 below is still yours),
+wires the secret guard as per-repo hooks (Step 4's machine-wide version is a separate opt-in,
+`--global-hooks`, which first names every repo whose own hooks would go dark), and copies your
+baseline JSONs to `~/.five-hats/`, where a re-clone of this folder cannot destroy them. Every
+change is recorded in a manifest; `--uninstall` replays it in reverse and refuses to delete
+anything you edited since. It never writes a verify, never sets a lane but `tier1`, never
+touches project source, and makes no network request.
+
+The steps below are the same work by hand — read them either way, because they say **why** each
+piece exists, and the judgment calls in them (the verify above all) are not installable.
+
 ### Step 3. Wire the spine
 
 **Touches:** creates `projects.json` in *this* folder. Nothing else, anywhere.
@@ -256,6 +278,18 @@ node baseline.mjs .. --compare baseline-<date>.json
 Rows that moved the wrong way are the useful ones. Drift warnings going *up* after adoption is
 normal and good — it usually means the system is now seeing things it was blind to before, not that
 things got worse. That distinction is exactly why you took the before-picture.
+
+And when you want the comparison as something you can put in front of another person:
+
+```bash
+node results.mjs ~/your/projects     # writes five-hats-report/results-<date>.html
+```
+
+One printable page: the before/after, the five-roles scorecard, and — separated on the page —
+what was **earned** (dead code removed, projects that reached a person, drift resolved) versus
+what merely reflects the kit being **installed** (projects registered, hooks wired). It contains
+no paths, no project names and no source, so it is safe to hand to a stranger as-is, and it says
+plainly what it could not measure.
 
 ---
 

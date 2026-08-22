@@ -270,7 +270,12 @@ function sweepProject(name, cfg) {
       const base = path.basename(f);
       const stem = base.slice(0, base.length - path.extname(base).length);
       const r = rel(f);
-      if (L.entry.test(r) || isScratch(f)) continue;
+      // isScratch gets the PROJECT-RELATIVE path, never the absolute one. Passing the absolute
+      // path meant any project living under a folder named tmp*/sandbox*/scratch* — a checkout
+      // in /tmp, a developer's ~/sandbox — silently exempted EVERY file from this check, with no
+      // message. A whole sweep reporting clean because of where the project happened to sit is
+      // the same fail-open shape found six times elsewhere today.
+      if (L.entry.test(r) || isScratch(r)) continue;
       // FILE-BASED ROUTING. A file under api/ or pages/ IS the route — the framework invokes it
       // by its path, and nothing imports it, ever. Reporting `api/stripe-webhook.js` as dead code
       // is a confident lie about a live payment endpoint, and it teaches the reader to skim.
@@ -352,7 +357,7 @@ function sweepProject(name, cfg) {
     let st; try { st = fs.statSync(f); } catch { continue; }
     if (st.size !== 0) continue;
     const base = path.basename(f);
-    if (emptyIsFine(base) || isScratch(f)) continue;
+    if (emptyIsFine(base) || isScratch(rel(f))) continue;   // relative, same reason as above
     const written = allSourceText.includes(base) || scripts.includes(base) || docs.includes(base);
     if (!written) finding.writerless.push({ file: rel(f) });
   }
