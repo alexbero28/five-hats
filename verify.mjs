@@ -116,8 +116,15 @@ try {
 
   run(['--record', '--quiet']);
   const fresh = run(['--quiet']);
-  if (fresh.trim()) bad('pulse: --quiet printed on a fresh stamp — it will become wallpaper');
-  else ok('pulse is silent when the pass is fresh');
+  // "Silent when fresh" is only the right assertion when there is ALSO nothing serious to say.
+  // On a machine where the kit folder holds a real registry, pulse correctly speaks about 12
+  // serious findings — and the first version of this check called that a failure. A check that
+  // demands silence in the presence of real findings would push a tool toward hiding them, which
+  // is the opposite of everything else here. So: silent, OR speaking about something serious.
+  if (!fresh.trim()) ok('pulse is silent when the pass is fresh and nothing is serious');
+  else if (/serious/i.test(fresh) && !/has not run in/i.test(fresh)) {
+    ok('pulse is quiet about staleness when fresh, and still reports what is serious');
+  } else bad(`pulse: --quiet printed on a fresh stamp with nothing serious — it will become wallpaper`);
 
   // age the stamp past the window and demand the nag
   const sf = join(ph, 'last-pass.json');
