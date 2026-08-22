@@ -1,0 +1,120 @@
+# The permanent stranger's machine.
+#
+# This repo's whole premise is that it runs on somebody else's computer. Until this file existed,
+# its 39-check verify had only ever run on the one Windows machine it was written on — and the
+# single outside reviewer who ran it found five real defects in one afternoon, four of which were
+# only findable on a machine that was not that one.
+#
+# So this is not "CI because projects have CI". It is the cheapest way to own two more operating
+# systems permanently, and it enforces the repo's own deepest rule: the verify, not the author's
+# confidence, decides done — and a verify that only ever runs where the author is has not decided
+# anything.
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly, because rot is silent and nothing else would notice a dependency of the runtime
+    # changing under us. A check nobody runs is not a check.
+    - cron: '0 9 * * 1'
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false        # one OS failing must not hide the others
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [18, 20, 22]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # 1. The repo's own gate, unmodified.
+      - name: verify
+        run: node verify.mjs
+
+      # 2. THE STRANGER SIMULATION. verify proves the kit is internally consistent. This proves
+      #    the first command a new person types actually works — on a tree the kit has never
+      #    seen, containing the shapes that have broken it before: a JS project, a Python
+      #    project, a folder with no git at all, and an empty one.
+      - name: build fixture projects
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p fx/js-app/src fx/py-app fx/no-git fx/orphan-files
+          echo '{"name":"js-app","scripts":{"test":"node -e 0"}}' > fx/js-app/package.json
+          echo "import './helper.mjs';" > fx/js-app/src/index.mjs
+          echo "export const x = 1;"    > fx/js-app/src/helper.mjs
+          echo "export const dead = 1;" > fx/js-app/src/nothing-imports-me.mjs
+          printf 'def main():\n    pass\n' > fx/py-app/app.py
+          printf 'import app\n'            > fx/py-app/run.py
+          touch fx/py-app/requirements.txt
+          # registered (has a marker) but NO git — must come back SERIOUS, never "backed up"
+          echo "print('no version control here')" > fx/no-git/loose.py
+          touch fx/no-git/requirements.txt
+          # holds real files but NO marker — must be NAMED as skipped, not folded into a count
+          echo "print('nothing registers me')" > fx/orphan-files/loose.py
+          git -C fx/js-app init -q && git -C fx/js-app add -A
+          git -C fx/js-app -c user.email=ci@example.com -c user.name=CI commit -qm init
+          git -C fx/py-app init -q && git -C fx/py-app add -A
+          git -C fx/py-app -c user.email=ci@example.com -c user.name=CI commit -qm init
+
+      - name: full pass against the fixtures
+        shell: bash
+        run: node start.mjs fx --no-ai
+
+      # 3. Assert the DELIVERABLES exist and are non-empty. The report going missing while the
+      #    run announced "Done" is a bug this repo has already shipped once.
+      - name: the report must be complete
+        shell: bash
+        run: |
+          set -eu
+          for f in 00-the-five-roles.txt 01-what-nothing-reads.txt 02-who-has-used-it.txt \
+                   03-what-is-decaying.txt 04-where-the-work-goes.txt 05-the-plan.txt \
+                   AGENT-BRIEF.md; do
+            test -s "five-hats-report/$f" || { echo "MISSING OR EMPTY: $f"; exit 1; }
+          done
+          ls five-hats-report/baseline-*.html >/dev/null
+          ls five-hats-report/baseline-*.json >/dev/null
+          echo "all deliverables present"
+
+      # 4. A run that CRASHED must never close by claiming success.
+      - name: a crashed run must report INCOMPLETE
+        shell: bash
+        run: |
+          set -eu
+          cp sweep.mjs sweep.mjs.bak
+          echo 'throw new Error("ci-injected crash");' > sweep.mjs
+          out=$(node start.mjs fx --no-ai 2>&1 || true)
+          cp sweep.mjs.bak sweep.mjs && rm sweep.mjs.bak
+          echo "$out" | grep -q "INCOMPLETE" || { echo "FAIL: a crashed run did not say INCOMPLETE"; exit 1; }
+          echo "$out" | grep -q "Done\." && { echo "FAIL: a crashed run still said Done"; exit 1; }
+          echo "a crashed run correctly refuses to claim success"
+
+      # 5. A folder with no version control must be reported as SERIOUS, never as backed up.
+      #    This is the exact regression the outside reviewer caught.
+      - name: no-git folder must not read as backed up
+        shell: bash
+        run: |
+          set -eu
+          grep -q "not under version control" five-hats-report/03-what-is-decaying.txt \
+            || { echo "FAIL: a folder with no git was not reported"; exit 1; }
+          echo "no-git folder correctly reported"
+
+      # 6. A directory holding real files but no project marker is invisible to every check
+      #    below it. It must be NAMED, not folded into a "19 of 28" count.
+      - name: unregistered folders must be named, not silently dropped
+        shell: bash
+        run: |
+          set -eu
+          node start.mjs fx --no-ai 2>&1 | grep -q "orphan-files" \
+            || { echo "FAIL: a folder with files but no marker was silently skipped"; exit 1; }
+          echo "unregistered folder correctly named"

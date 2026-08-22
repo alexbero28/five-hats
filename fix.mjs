@@ -37,13 +37,20 @@ const positional = argv.filter((a, i) => !a.startsWith('--') && !String(argv[i -
 const registry = val('registry');
 const scope = registry ? ['--registry', registry] : [positional[0] || '.'];
 
+const broken = [];  // tools that CRASHED — their sections are MISSING, not empty
 function run(tool) {
   try {
     const out = execFileSync(process.execPath, [path.join(HERE, tool), ...scope, '--json'],
       { encoding: 'utf8', stdio: 'pipe', timeout: 300000, maxBuffer: 256 * 1024 * 1024 });
     return JSON.parse(out);
   } catch (e) {
-    return { __error: String(e.stderr || e.message).split('\n')[0] };
+    // FAIL LOUD. Every consumer below is `if (!x.__error)`, so a swallowed error meant the plan
+    // simply OMITTED that entire section and still presented itself as complete — "nothing found"
+    // and "nothing looked at" printing the same sentence, inside the tool that ships that rule.
+    // start.mjs fixed this same class in its own runner; this one never got it.
+    broken.push({ tool, why: String(e.stderr || e.message).split('\n').find((l) => /Error/.test(l))
+      || String(e.message).split('\n')[0] });
+    return { __error: true };
   }
 }
 
@@ -234,6 +241,14 @@ if (flag('json')) { console.log(JSON.stringify(plan, null, 2)); process.exit(0);
 // ---- print -----------------------------------------------------------------------------------
 console.log('# The plan — what to do about what was found\n');
 console.log('  Nothing here has been changed. This is a proposal, in the order worth doing it.\n');
+
+// Before any findings. A missing section must never be mistaken for a clean one.
+if (broken.length) {
+  console.log('  INCOMPLETE — these sections were NOT produced because their check crashed:\n');
+  for (const b of broken) console.log(`     ${b.tool.replace('.mjs', '').toUpperCase()} — ${b.why}`);
+  console.log('\n  Whatever those checks would have found is absent from this plan.');
+  console.log('  Do not read this as a shorter list of problems.\n');
+}
 
 if (!plan.length) {
   console.log('  No findings to act on. Check what was NOT analysed before reading that as clean.\n');

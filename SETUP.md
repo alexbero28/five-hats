@@ -265,7 +265,7 @@ things got worse. That distinction is exactly why you took the before-picture.
 node verify.mjs     # this repo's own binary gate — read-only
 ```
 
-23 checks. It runs every tool, proves the spine works against the shipped example, and fails if any
+Every check. It runs every tool, proves the spine works against the shipped example, and fails if any
 private or machine-specific reference gets into the repo. We eat our own cooking.
 
 ---
