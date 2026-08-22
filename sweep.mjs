@@ -368,9 +368,11 @@ function sweepProject(name, cfg) {
 // WHERE DO WE LOOK? Three ways, in order, so there is nothing to set up before the first run.
 function resolveTargets(args) {
   const rIdx = args.indexOf('--registry');
-  const regPath = rIdx !== -1 ? args[rIdx + 1]
-    : (fs.existsSync('projects.json') ? 'projects.json' : null);
   const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--registry');
+  // An explicit path argument WINS over the ambient projects.json. See drift.mjs for the
+  // full account: the fallback used to override a path the person actually typed, silently.
+  const regPath = rIdx !== -1 ? args[rIdx + 1]
+    : (positional.length === 0 && fs.existsSync('projects.json') ? 'projects.json' : null);
 
   if (regPath && fs.existsSync(regPath)) {
     let reg;

@@ -125,7 +125,10 @@ function analyse(name, root) {
 }
 
 // ---- targets ---------------------------------------------------------------------------------
-const regPath = val('registry') || (fs.existsSync('projects.json') ? 'projects.json' : null);
+// An explicit path argument WINS over the ambient projects.json. See drift.mjs for the full
+// account: the fallback used to override a path the person actually typed, silently.
+const regPath = val('registry')
+  || (positional.length === 0 && fs.existsSync('projects.json') ? 'projects.json' : null);
 let targets;
 if (regPath && fs.existsSync(regPath)) {
   const reg = JSON.parse(fs.readFileSync(regPath, 'utf8'));

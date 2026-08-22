@@ -34,8 +34,11 @@ const expand = (p) => (p.startsWith('~') ? path.join(HOME, p.slice(1)) : p);
 //   node reach.mjs --registry projects.json    every project in a registry
 function resolveTargets() {
   const rIdx = argv.indexOf('--registry');
-  const regPath = rIdx !== -1 ? argv[rIdx + 1] : (fs.existsSync('projects.json') ? 'projects.json' : null);
   const pos = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--registry');
+  // An explicit path argument WINS over the ambient projects.json. See drift.mjs for the
+  // full account: the fallback used to override a path the person actually typed, silently.
+  const regPath = rIdx !== -1 ? argv[rIdx + 1]
+    : (pos.length === 0 && fs.existsSync('projects.json') ? 'projects.json' : null);
   if (regPath && fs.existsSync(regPath)) {
     const reg = JSON.parse(fs.readFileSync(regPath, 'utf8'));
     return Object.entries(reg.projects || {}).map(([n, c]) => [n, { ...c, path: expand(c.path) }]);

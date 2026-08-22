@@ -273,6 +273,40 @@ try {
   bad(`zero-scan comparison check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
 }
 
+// 4d-septies. AN EXPLICIT ARGUMENT MUST WIN. With a projects.json in the working directory, four
+//     tools silently ignored the path they were given and scanned the registry instead — the tool
+//     substituting its own target for the one it was told, with no message. It only reproduces
+//     AFTER an install creates that file, which is why it survived until a second machine ran it.
+try {
+  const s = join(os.tmpdir(), 'five-hats-verify-arg');
+  fs.rmSync(s, { recursive: true, force: true });
+  fs.mkdirSync(join(s, 'real', 'src'), { recursive: true });
+  writeFileSync(join(s, 'real', 'src', 'orphan.mjs'), 'export const dead = 1;\n');
+  writeFileSync(join(s, 'real', 'package.json'), '{"name":"real"}\n');
+  // an ambient registry in the CWD pointing somewhere else entirely
+  writeFileSync(join(s, 'projects.json'), JSON.stringify({
+    projects: { elsewhere: { path: join(s, 'nowhere'), verify: null, lane: 'tier1' } },
+  }));
+  const run = (tool) => execFileSync(process.execPath, [join(root, tool), join(s, 'real'), '--json'],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 60000, cwd: s });
+  let wrong = [];
+  for (const tool of ['sweep.mjs', 'drift.mjs', 'reach.mjs', 'hotspots.mjs']) {
+    let names = [];
+    try {
+      const j = JSON.parse(run(tool));
+      names = j.map((r) => r.project || r.name).filter(Boolean);
+    } catch { names = ['(crashed)']; }
+    if (names.some((n) => /elsewhere|crashed/.test(n)) || !names.some((n) => n === 'real')) {
+      wrong.push(`${tool}->${names.join(',') || 'nothing'}`);
+    }
+  }
+  if (wrong.length) bad(`explicit path ignored in favour of an ambient registry: ${wrong.join(' · ')}`);
+  else ok('an explicit path argument beats an ambient projects.json (4 tools)');
+  fs.rmSync(s, { recursive: true, force: true });
+} catch (e) {
+  bad(`explicit-argument check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
+
 // 4e. THE SKILLS. The kit shipped nine and installed none — files in a folder are not behaviour.
 //     The installer must offer them, and must NEVER overwrite one the person already has.
 try {
@@ -330,7 +364,10 @@ const LEAK = terms.length
 const MACHINE = /(project-memory|C:\\Users|\/c\/Users|~\/repo\b)/i;
 const walk = (d, out = []) => {
   for (const e of readdirSync(d, { withFileTypes: true })) {
-    if (['.git', 'node_modules', 'five-hats-report'].includes(e.name)) continue;  // generated output, not repo content
+    // projects.json is the USER's registry — gitignored, full of their absolute paths, and not
+    // repo content. Scanning it flagged a machine-specific path on the first machine that ran an
+    // install, which is a check failing on its own success.
+    if (['.git', 'node_modules', 'five-hats-report', 'projects.json'].includes(e.name)) continue;
     const p = join(d, e.name);
     e.isDirectory() ? walk(p, out) : out.push(p);
   }

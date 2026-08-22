@@ -45,8 +45,16 @@ const git = (cwd, cmd) => {
 // Everything git-related still runs, and that is where most of the real findings come from.
 function resolveTargets() {
   const rIdx = argv.indexOf('--registry');
-  const regPath = rIdx !== -1 ? argv[rIdx + 1] : (fs.existsSync('projects.json') ? 'projects.json' : null);
   const pos = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--registry');
+  // AN EXPLICIT ARGUMENT WINS. The ambient projects.json is a convenience for `node drift.mjs`
+  // with no arguments; it must never override a path the person actually typed. It used to, and
+  // the effect was that `drift.mjs ~/some/project` silently scanned an entirely different set of
+  // projects and reported on those instead — the tool substituting its own idea of the target for
+  // the one it was given, with no message. It only appears once a registry exists in the working
+  // directory, which is to say only AFTER someone installs, which is why it survived until a
+  // second machine ran it.
+  const regPath = rIdx !== -1 ? argv[rIdx + 1]
+    : (pos.length === 0 && fs.existsSync('projects.json') ? 'projects.json' : null);
   if (regPath && fs.existsSync(regPath)) {
     const reg = JSON.parse(fs.readFileSync(regPath, 'utf8'));
     return Object.entries(reg.projects || {}).map(([n, c]) => [n, { ...c, path: expand(c.path) }]);
