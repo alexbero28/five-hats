@@ -342,6 +342,31 @@ try {
   bad(`monorepo hook check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
 }
 
+// 4d-nonies. REACH PATHS are detected, and a VERIFY is still never invented. The first is
+//     reading (the folder exists or it does not); the second would be the installer inventing the
+//     definition of done, which turns a whole board green for free.
+try {
+  const s2 = join(os.tmpdir(), 'five-hats-verify-reach');
+  fs.rmSync(s2, { recursive: true, force: true });
+  fs.mkdirSync(join(s2, 'fx', 'withev', 'out'), { recursive: true });
+  fs.mkdirSync(join(s2, 'fx', 'plain'), { recursive: true });
+  writeFileSync(join(s2, 'fx', 'withev', 'package.json'), '{"name":"withev","scripts":{"test":"echo hi"}}');
+  writeFileSync(join(s2, 'fx', 'plain', 'package.json'), '{"name":"plain"}');
+  const rp = join(s2, 'p.json');
+  execFileSync(process.execPath, [join(root, 'install.mjs'), join(s2, 'fx'), '--registry', rp, '--apply'],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 60000,
+      env: { ...process.env, FIVE_HATS_HOME: join(s2, 'h'), CLAUDE_CONFIG_DIR: join(s2, 'cfg') } });
+  const j = JSON.parse(readFileSync(rp, 'utf8'));
+  const ev = j.projects.withev || {}; const pl = j.projects.plain || {};
+  if (!ev.reachPaths || !ev.reachPaths.includes('out/')) bad('installer did not detect an evidence folder');
+  else if (pl.reachPaths) bad('installer invented a reachPath for a project with no evidence folder');
+  else if (ev.verify !== null) bad('installer ADOPTED a declared test script as the verify — it must never invent done');
+  else ok('installer detects reach paths and still refuses to write a verify');
+  fs.rmSync(s2, { recursive: true, force: true });
+} catch (e) {
+  bad(`reach-path check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
+
 // 4e. THE SKILLS. The kit shipped nine and installed none — files in a folder are not behaviour.
 //     The installer must offer them, and must NEVER overwrite one the person already has.
 try {

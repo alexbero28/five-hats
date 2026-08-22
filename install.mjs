@@ -349,6 +349,31 @@ if (existingReg !== null) {
         : 'no verify suggested — write the smallest command that would fail if this broke',
     };
   }
+  // REACH PATHS — the one remaining bar an installer can honestly move. `reach` asks whether a
+  // real person has ever used a project, and it answers "can't tell" unless it knows which folders
+  // fill up when somebody ELSE acts. Naming those is not judgment and not invention: the folder is
+  // either there or it is not. Detecting it is reading, the same way a declared test script is the
+  // project's own statement rather than ours.
+  //
+  // Deliberately NOT extended further, and the reasons are worth writing down:
+  //   - A VERIFY is never adopted, even from a declared `npm test`. On the machine this was built
+  //     against, zero of eight verify-less projects declared one — so the bar does not move
+  //     because the work has not been done, not because the installer is being coy.
+  //   - `git init` is refused outright. It would flip "not under version control" to clean while
+  //     the project still had NO COMMITS and nothing recoverable — manufacturing the appearance of
+  //     a backup. That is the exact defect this kit exists to catch, and an installer producing it
+  //     deliberately would be worse than the gap it closed.
+  const EVIDENCE = ['out', 'output', 'outbox', 'responses', 'uploads', 'exports', 'sent',
+    'deliveries', 'letters', 'reports', 'invoices'];
+  for (const [name, dir] of found.map((p) => [path.basename(p), p])) {
+    if (reg.projects[name] && !reg.projects[name].reachPaths) {
+      const hits = EVIDENCE.filter((d) => {
+        try { return fs.statSync(path.join(dir, d)).isDirectory(); } catch { return false; }
+      });
+      if (hits.length) reg.projects[name].reachPaths = hits.map((h) => `${h}/`);
+    }
+  }
+
   regProjects = found.map((p) => [path.basename(p), p]);
   regContent = `${JSON.stringify(reg, null, 2)}\n`;
   steps.push({
