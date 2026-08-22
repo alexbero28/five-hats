@@ -52,6 +52,22 @@ for (const f of CHECKS) {
   } catch (e) { bad(`${f} failed to run: ${String(e.stderr || e.message).split('\n')[0]}`); }
 }
 
+// 4a. EVERY OUTPUT MODE, not just the default one. `--report` and `--save` take separate code
+//     paths, and a ReferenceError in the HTML path shipped because this gate only ever ran
+//     baseline bare. The run that produced the report announced success with the report missing.
+try {
+  const tmp = join(root, '.verify-tmp');
+  execFileSync(process.execPath, [join(root, 'baseline.mjs'), root, '--save', '--report', '--no-ai'],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 120000, cwd: root });
+  const made = readdirSync(root).filter((f) => /^baseline-\d{4}-\d{2}-\d{2}\.(json|html)$/.test(f));
+  if (made.length === 2) ok('baseline.mjs --save --report writes both files');
+  else bad(`baseline --save --report produced ${made.length} file(s), expected 2`);
+  for (const f of made) unlinkSync(join(root, f));
+  if (existsSync(tmp)) unlinkSync(tmp);
+} catch (e) {
+  bad(`baseline --save --report failed: ${String(e.stderr || e.message).split('\n').find((l) => /Error/.test(l)) || String(e.message).split('\n')[0]}`);
+}
+
 // 4b. The spine needs a registry to do anything, so prove it works against the shipped EXAMPLE —
 //     the same file a stranger copies in step 3 of SETUP.md. Never clobber a real one.
 const reg = join(root, 'projects.json');
@@ -98,7 +114,7 @@ const LEAK = terms.length
 const MACHINE = /(project-memory|C:\\Users|\/c\/Users|~\/repo\b)/i;
 const walk = (d, out = []) => {
   for (const e of readdirSync(d, { withFileTypes: true })) {
-    if (e.name === '.git' || e.name === 'node_modules') continue;
+    if (['.git', 'node_modules', 'five-hats-report'].includes(e.name)) continue;  // generated output, not repo content
     const p = join(d, e.name);
     e.isDirectory() ? walk(p, out) : out.push(p);
   }

@@ -92,14 +92,32 @@ const run = (tool, args, label) => {
       { encoding: 'utf8', stdio: 'pipe', timeout: 600000, maxBuffer: 256 * 1024 * 1024 });
   } catch (e) {
     const out = String(e.stdout || '');
-    if (out.trim()) return out;                     // non-zero exit but real output (drift --gate)
+    const err = String(e.stderr || '');
+    // A CRASH IS NOT A RESULT. This used to return stdout whenever the child had printed
+    // anything, which is right for `drift --gate` (exits 1 by design, output is valid) and
+    // catastrophically wrong for a child that printed half its work and then threw. baseline
+    // did exactly that — printed the chart, crashed on a ReferenceError before writing the
+    // report — and this line swallowed it, so the run announced success while its most
+    // important deliverable was silently missing. Distinguish the two.
+    const crashed = /Error|Exception|at ModuleJob|node:internal/.test(err);
+    if (crashed) {
+      console.log(`      ${B('!!')} ${label} CRASHED after producing partial output:`);
+      console.log(`         ${err.split('\n').find((l) => /Error/.test(l)) || err.split('\n')[0]}`);
+      failures.push(label);
+      return out;   // keep what it managed to print, but the run is now marked failed
+    }
+    if (out.trim()) return out;                     // non-zero exit by design (drift --gate)
     console.log(`      ${label}: could not run — ${String(e.message).split('\n')[0]}`);
+    failures.push(label);
     return '';
   }
 };
 
 const save = (name, text) => { fs.writeFileSync(path.join(OUT, name), text); return name; };
 const written = [];
+// Declared before run()'s first CALL. Anything that crashes lands here, and a non-empty list
+// changes the closing message from "Done" to "INCOMPLETE".
+const failures = [];
 
 // ---- 2. baseline ------------------------------------------------------------------------------
 step(2, 'Taking the before-picture');
@@ -147,7 +165,12 @@ console.log('      the lanes, the seven rules, your findings, and the trap on ea
 
 // ---- hand it over ---------------------------------------------------------------------------------
 const rel = path.relative(process.cwd(), OUT) || OUT;
-console.log(`\n${B('  Done. Nothing in your projects was changed.')}\n`);
+if (failures.length) {
+  console.log(`\n${B(`  INCOMPLETE — ${failures.join(', ')} did not finish.`)}`);
+  console.log('  What follows is PARTIAL. A missing section is not a clean one.\n');
+} else {
+  console.log(`\n${B('  Done. Nothing in your projects was changed.')}\n`);
+}
 console.log(`  Everything is in ${B(rel)}:\n`);
 for (const f of written.sort()) console.log(`      ${f}`);
 

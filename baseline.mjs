@@ -146,6 +146,16 @@ if (ai.present) {
 }
 
 // ---- assemble ---------------------------------------------------------------------------------
+// NEVER and CAN'T TELL are different facts and must never be merged. reach reported
+// "0 never · 15 can't tell" while the chart claimed "15 nobody has ever touched" — asserting
+// something the check had explicitly declined to assert. Module scope, because BOTH the terminal
+// chart and the HTML report need it; defining it inside the terminal block crashed --report.
+const useGap = [
+  use.never ? `${use.never} nobody has ever touched` : '',
+  use.unknown ? `${use.unknown} can't tell (name your evidence folders)` : '',
+  use.missing ? `${use.missing} path missing` : '',
+].filter(Boolean).join(' · ');
+
 const snapshot = {
   takenAt: new Date().toISOString().slice(0, 10),
   scope: registry ? `registry:${basename(registry)}` : target,
@@ -215,11 +225,6 @@ if (totalProjects) {
   // NEVER and CAN'T TELL are different facts and must never be merged. reach reported
   // "0 never · 15 can't tell" while this row claimed "15 nobody has ever touched" -- the chart
   // asserting something the check had explicitly declined to assert.
-  const useGap = [
-    use.never ? `${use.never} nobody has ever touched` : '',
-    use.unknown ? `${use.unknown} can't tell (name your evidence folders)` : '',
-    use.missing ? `${use.missing} path missing` : '',
-  ].filter(Boolean).join(' · ');
   row('used by a real person', use.reached, totalProjects, 'nobody has ever touched', useGap);
   row('survives a disk failure', totalProjects - decay.noRemote, totalProjects, 'exist on exactly one disk');
   console.log('');
