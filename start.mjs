@@ -11,10 +11,14 @@
 //
 // WHAT IT DOES, IN ORDER:
 //   1. Checks the ground   — node, git, and whether the target actually holds projects.
-//   2. Takes the baseline  — the before-picture, so improvement can be measured later, not asserted.
-//   3. Runs the checks     — what nothing reads, who uses it, what decays, where effort goes.
-//   4. Writes the plan     — every finding with its correct response and its trap.
-//   5. Writes the brief    — the doctrine + findings, for their AI to execute under their gate.
+//   2. Scores the SETUP    — for each of the five roles, is anything making you do it?
+//   3. Takes the baseline  — the before-picture, so improvement can be measured later, not asserted.
+//   4. Runs the checks     — what nothing reads, who uses it, what decays, where effort goes.
+//   5. Writes the plan     — every finding with its correct response and its trap.
+//   6. Writes the brief    — the doctrine + findings, for their AI to execute under their gate.
+//
+// Step 2 is the one nothing else does. Every other check reads CODE; that one reads the operating
+// setup around it and asks whether the five jobs have anything TRIGGERING them.
 //
 // IT STILL CHANGES NOTHING in the target. Everything it writes goes into ONE output folder,
 // and the folder is the deliverable.
@@ -32,7 +36,7 @@ const noAi = flag('no-ai');
 
 const B = (s) => `\x1b[1m${s}\x1b[0m`;
 const DIM = (s) => `\x1b[2m${s}\x1b[0m`;
-const step = (n, s) => console.log(`\n${B(`[${n}/5]`)} ${B(s)}`);
+const step = (n, s) => console.log(`\n${B(`[${n}/6]`)} ${B(s)}`);
 
 // ---- 1. the ground --------------------------------------------------------------------------
 console.log(B('\n  Five Hats — full pass\n'));
@@ -120,7 +124,14 @@ const written = [];
 const failures = [];
 
 // ---- 2. baseline ------------------------------------------------------------------------------
-step(2, 'Taking the before-picture');
+step(2, 'Scoring the operating setup against the five roles');
+const archOut = run('archetypes.mjs', [target], 'archetypes');
+written.push(save('00-the-five-roles.txt', archOut));
+for (const l of archOut.split('\n').filter((l) => /^  [●◐○] /.test(l))) console.log(`  ${l.trim()}`);
+const bloat = (archOut.match(/! \d+ bytes of standing instructions/) || [''])[0];
+if (bloat) console.log(`      ${bloat.replace('! ', '')}`);
+
+step(3, 'Taking the before-picture');
 const baseArgs = ['--registry', regPath, '--save', '--report'];
 if (noAi) baseArgs.push('--no-ai');
 const base = run('baseline.mjs', baseArgs, 'baseline');
@@ -135,7 +146,7 @@ const chart = base.split('\n').filter((l) => /█|░|NOT ANALYSED|nobody has ev
 for (const l of chart.slice(0, 8)) console.log(`  ${l}`);
 
 // ---- 3. the three checks ------------------------------------------------------------------------
-step(3, 'Running the checks');
+step(4, 'Running the checks');
 const sweepOut = run('sweep.mjs', ['--registry', regPath], 'sweep');
 const reachOut = run('reach.mjs', ['--registry', regPath], 'reach');
 const driftOut = run('drift.mjs', ['--registry', regPath], 'drift');
@@ -152,13 +163,13 @@ const hotLine = (hotOut.match(/start with [^\n]*/) || [''])[0].trim();
 console.log(`      where the work goes  ${hotLine || 'no git history to measure'}`);
 
 // ---- 4 + 5. the plan and the brief ---------------------------------------------------------------
-step(4, 'Writing the plan');
+step(5, 'Writing the plan');
 const planOut = run('fix.mjs', ['--registry', regPath, '--brief'], 'fix');
 written.push(save('05-the-plan.txt', planOut));
 const counts = planOut.match(/(\d+) mechanical · (\d+) needing a decision/);
 if (counts) console.log(`      ${counts[1]} mechanical (safe to automate) · ${counts[2]} needing a human decision`);
 
-step(5, 'Writing the brief for your AI');
+step(6, 'Writing the brief for your AI');
 const brief = path.join(HERE, 'AGENT-BRIEF.md');
 if (fs.existsSync(brief)) { fs.renameSync(brief, path.join(OUT, 'AGENT-BRIEF.md')); written.push('AGENT-BRIEF.md'); }
 console.log('      the lanes, the seven rules, your findings, and the trap on each one');

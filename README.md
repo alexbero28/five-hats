@@ -32,6 +32,7 @@ everything in one folder:
 five-hats-report/
    baseline-2026-08-21.html      where you are today, as a chart
    baseline-2026-08-21.json      the before-picture, for --compare later
+   00-the-five-roles.txt         is anything making you do each of the five jobs
    01-what-nothing-reads.txt
    02-who-has-used-it.txt
    03-what-is-decaying.txt
@@ -129,6 +130,47 @@ which way each number went:
 skill file and a skill that has fired look identical from the filesystem. Where that limit bites it
 prints the limit instead of a number. That exact gap is where our own 1,639 never-loaded skills
 lived for two months.
+
+---
+
+## `archetypes.mjs` — the one that reads your setup, not your code
+
+Every other check here reads **code**. This one reads the **operating setup around it** and asks
+one question per role: **is there anything that would make you do this job?**
+
+```bash
+node archetypes.mjs ~/your/projects
+```
+
+```
+  ○ PROTOTYPER  NO TRIGGER FOUND
+      absent   no kill-date or expiry field found in any registry
+      why it matters  A spike with no expiry becomes infrastructure by default —
+                      nobody ever decides to keep it, it just stays.
+  ● BUILDER     covered      3 project(s) with a test/verify script
+  ● SWEEPER     covered      five-hats sweep
+  ○ GROWER      NO TRIGGER FOUND
+      absent   no analytics and no output/evidence folders found
+  ● MAINTAINER  covered      a machine-wide git hooks path
+```
+
+A role with no trigger is a role that does not happen, however much anyone intends to. That is
+the whole diagnosis: with a capable AI, Prototyper and Builder go vertical and the other three
+stop — not through laziness, through the absence of anything that makes you do them.
+
+It also counts your AI setup and flags the failure mode nobody watches:
+
+```
+  19 skill(s) · 13 agent(s) · 2 MCP server(s) · 4 hook event(s)
+  ! 71448 bytes of standing instructions. Past about 20 KB these stop being read
+    carefully by anyone, including the model.
+```
+
+**Two things it refuses to claim.** It cannot tell what has ever *run* — a configured hook and a
+hook that fires are identical on disk, and that gap is where a 1,639-skill library sat unused for
+two months. And an `absent` row means *no evidence was found here*, never *you do not do this*. If
+you track usage in a product this cannot see, the finding is that the trigger lives outside the
+repo — not that it is missing.
 
 ---
 
