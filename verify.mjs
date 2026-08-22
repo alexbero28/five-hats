@@ -314,6 +314,34 @@ try {
   bad(`explicit-argument check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
 }
 
+// 4d-octies. A MONOREPO MUST GET ITS GUARD. install checked for a .git FOLDER, so every project
+//     inside one larger repository was skipped — "no .git, so no hooks to wire" — and MAINTAINER
+//     stayed uncovered after an install that looked successful. drift got this fix; install never
+//     did. Caught by a dry run against a real monorepo, before anything was written.
+try {
+  const s = join(os.tmpdir(), 'five-hats-verify-mono');
+  fs.rmSync(s, { recursive: true, force: true });
+  fs.mkdirSync(join(s, 'repo', 'alpha'), { recursive: true });
+  fs.mkdirSync(join(s, 'repo', 'beta'), { recursive: true });
+  writeFileSync(join(s, 'repo', 'alpha', 'package.json'), '{"name":"alpha"}\n');
+  writeFileSync(join(s, 'repo', 'beta', 'package.json'), '{"name":"beta"}\n');
+  const g = (a) => spawnSync('git', a, { cwd: join(s, 'repo'), encoding: 'utf8' });
+  g(['init', '-q']); g(['add', '-A']);
+  g(['-c', 'user.email=v@v.v', '-c', 'user.name=V', 'commit', '-qm', 'init']);
+  const out = execFileSync(process.execPath,
+    [join(root, 'install.mjs'), join(s, 'repo'), '--registry', join(s, 'p.json')],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 60000,
+      env: { ...process.env, FIVE_HATS_HOME: join(s, 'h'), CLAUDE_CONFIG_DIR: join(s, 'cfg') } });
+  if (/no \.git, so no hooks/.test(out)) {
+    bad('install skips monorepo subprojects — the guard would be wired to nothing');
+  } else if (!/hooks[\\/]pre-commit/.test(out)) {
+    bad('install proposed no hook for a monorepo — MAINTAINER would stay uncovered');
+  } else ok('install wires the guard once on a monorepo and says which folders it covers');
+  fs.rmSync(s, { recursive: true, force: true });
+} catch (e) {
+  bad(`monorepo hook check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
+
 // 4e. THE SKILLS. The kit shipped nine and installed none — files in a folder are not behaviour.
 //     The installer must offer them, and must NEVER overwrite one the person already has.
 try {

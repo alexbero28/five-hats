@@ -376,8 +376,28 @@ const writeHook = (dest, text, kindTag) => ({
 const reposWithOwnHooks = [];
 const hookTargets = [];
 for (const [name, dir] of regProjects || []) {
-  const dotGit = path.join(dir, '.git');
-  if (!fs.existsSync(dotGit)) { skipped.push(`${name} — no .git, so no hooks to wire (drift will report the bigger problem)`); continue; }
+  // ASK GIT, do not look for a folder — the same fix drift needed, which was never carried here.
+  // A project inside a larger repository has no .git of its own and is perfectly versioned; the
+  // folder test skipped EVERY subdirectory of a monorepo, so the guard was wired to nothing and
+  // MAINTAINER stayed uncovered after a successful-looking install. Caught by a dry run against a
+  // real monorepo before anything was written, which is the entire reason the dry run exists.
+  const topLevel = git(['rev-parse', '--show-toplevel'], dir);
+  if (!topLevel) {
+    skipped.push(`${name} — not under version control at all, so there is no hook to wire. `
+      + 'drift reports this as SERIOUS; it is the bigger problem and no hook would fix it');
+    continue;
+  }
+  const gitDirRoot = path.resolve(topLevel);
+  const dotGit = path.join(gitDirRoot, '.git');
+  if (path.resolve(dir) !== gitDirRoot) {
+    // One repo, several project folders. The hook belongs to the REPO, not to each folder, and
+    // wiring it once is correct — say which repo so nobody wonders where the hook went.
+    skipped.push(`${name} — inside the ${path.basename(gitDirRoot)} repository; `
+      + 'the hook is wired once on that repo and covers this folder too');
+    if (hookTargets.some(([, d]) => d === gitDirRoot)) continue;
+    hookTargets.push([path.basename(gitDirRoot), gitDirRoot]);
+    continue;
+  }
   if (!fs.statSync(dotGit).isDirectory()) { skipped.push(`${name} — .git is a file (worktree/submodule); its hooks live elsewhere, wire them by hand`); continue; }
   if (git(['config', '--local', '--get', 'core.hooksPath'], dir)) { skipped.push(`${name} — has its own local core.hooksPath; a hook written to .git/hooks would never run. Add the guard line to that path yourself`); continue; }
   let own = false;
