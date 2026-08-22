@@ -642,7 +642,21 @@ if (fs.existsSync(CLAUDE_HOME)) {
   const settings = path.join(CLAUDE_HOME, 'settings.json');
   const pulseCmd = `node ${fwd(path.join(HERE, 'pulse.mjs'))} --quiet --registry ${fwd(REG_PATH)} 2>&1 || true`;
   if (!fs.existsSync(settings)) {
-    const body = `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: pulseCmd, timeout: 30 }] }] } }, null, 2)}\n`;
+    const memRead = `node ${fwd(path.join(HERE, 'memory.mjs'))} read 2>&1 || true`;
+    const memCheck = `node ${fwd(path.join(HERE, 'memory.mjs'))} check 2>&1 || true`;
+    const body = `${JSON.stringify({
+      hooks: {
+        // Order matters: WHERE WE ARE first, then what is decaying. A stale checkpoint has to be
+        // visible BEFORE anyone acts on it, not after they have already started on the wrong thing.
+        SessionStart: [{ hooks: [
+          { type: 'command', command: memRead, timeout: 20 },
+          { type: 'command', command: pulseCmd, timeout: 30 },
+        ] }],
+        // Stop asks whether anything got written down. It never blocks: a reminder that can fail a
+        // session is a reminder somebody disables by Friday.
+        Stop: [{ hooks: [{ type: 'command', command: memCheck, timeout: 20 }] }],
+      },
+    }, null, 2)}\n`;
     steps.push({
       line: `WRITE    ${fwd(settings)}`,
       detail: `${Buffer.byteLength(body)} bytes — runs the pulse when a session starts. This is the trigger that makes the rest happen without you deciding to`,
@@ -652,7 +666,13 @@ if (fs.existsSync(CLAUDE_HOME)) {
       },
     });
   } else {
-    skipped.push(`settings.json exists and is NOT edited — programmatic edits to somebody's config are how installers break things. Add this to hooks.SessionStart yourself:\n             {"type":"command","command":"${pulseCmd}","timeout":30}`);
+    const memRead = `node ${fwd(path.join(HERE, 'memory.mjs'))} read 2>&1 || true`;
+    const memCheck = `node ${fwd(path.join(HERE, 'memory.mjs'))} check 2>&1 || true`;
+    skipped.push('settings.json exists and is NOT edited — programmatic edits to somebody\'s config '
+      + 'are how installers break things. Add these three yourself:'
+      + `\n             SessionStart: {"type":"command","command":"${memRead}","timeout":20}`
+      + `\n             SessionStart: {"type":"command","command":"${pulseCmd}","timeout":30}`
+      + `\n             Stop:         {"type":"command","command":"${memCheck}","timeout":20}`);
   }
 }
 

@@ -25,7 +25,7 @@ const CHECKS = ['sweep.mjs', 'reach.mjs', 'drift.mjs', 'baseline.mjs', 'fix.mjs'
 // target holds no project-shaped folders, which is correct behaviour and would fail this gate.
 // install.mjs and results.mjs refuse for the same reason, and both get their own full-exercise
 // checks (7 and 8 below) against a sandbox instead — running them bare would prove less.
-const TOOLS = ['bin/project.mjs', 'bin/secret-guard.mjs', 'start.mjs', 'install.mjs', 'results.mjs', 'kit-version.mjs'];
+const TOOLS = ['bin/project.mjs', 'bin/secret-guard.mjs', 'start.mjs', 'install.mjs', 'results.mjs', 'kit-version.mjs', 'memory.mjs'];
 
 // 1. Everything the README promises is actually here.
 for (const f of [...CHECKS, ...TOOLS, 'README.md', 'DOCTRINE.md', 'SETUP.md', 'projects.example.json', '.private-terms.example']) {
@@ -413,6 +413,46 @@ try {
   fs.rmSync(s3, { recursive: true, force: true });
 } catch (e) {
   bad(`settings-install check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
+
+// 4d-undecies. THE MEMORY LOOP. STATE.md and DECISIONS.md existed, were good, and went unwritten
+//     through two days of heavy work — because writing memory has no trigger. All four behaviours
+//     are proved: read finds STATE from a subfolder and flags staleness, check nags only when
+//     nothing moved, set enforces the five-line cap, note appends.
+try {
+  const m = join(os.tmpdir(), 'five-hats-verify-mem');
+  fs.rmSync(m, { recursive: true, force: true });
+  fs.mkdirSync(join(m, 'proj', 'deep', 'sub'), { recursive: true });
+  writeFileSync(join(m, 'proj', 'STATE.md'), '# STATE\n\n## Checkpoint (max 5 lines)\n\n- Next action: stale thing\n');
+  const env = { ...process.env, FIVE_HATS_HOME: join(m, 'home') };
+  const run = (args) => execFileSync(process.execPath, [join(root, 'memory.mjs'), ...args],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 30000, cwd: join(m, 'proj', 'deep', 'sub'), env })
+    .replace(/\[[0-9;]*m/g, '');
+
+  if (!/stale thing/.test(run(['read']))) bad('memory: read did not find STATE.md from a subfolder');
+  else ok('memory read walks up from a subfolder to find STATE.md');
+
+  if (!/did not move/.test(run(['check']))) bad('memory: check stayed silent when nothing was written');
+  else ok('memory check nags when the checkpoint did not move');
+
+  run(['set', '--next', 'the real next thing', '--phase', 'p', '--green', 'g']);
+  const cp = readFileSync(join(m, 'proj', 'STATE.md'), 'utf8');
+  const lines = cp.split('\n').filter((l) => l.trim().startsWith('- '));
+  if (lines.length > 5) bad(`memory set wrote ${lines.length} checkpoint lines — the cap is the mechanism`);
+  else if (!/the real next thing/.test(cp)) bad('memory set did not write the checkpoint');
+  else ok('memory set rewrites the checkpoint and holds the five-line cap');
+
+  if (run(['check']).trim()) bad('memory: check still nagged after the checkpoint moved');
+  else ok('memory check is silent once the checkpoint has moved');
+
+  run(['note', 'a decision, with its reason']);
+  if (!/D-001.*a decision, with its reason/s.test(readFileSync(join(m, 'proj', 'DECISIONS.md'), 'utf8'))) {
+    bad('memory note did not append a dated decision');
+  } else ok('memory note appends a dated, numbered decision');
+
+  fs.rmSync(m, { recursive: true, force: true });
+} catch (e) {
+  bad(`memory checks failed: ${String(e.stderr || e.message).split('\n')[0]}`);
 }
 
 // 4e. THE SKILLS. The kit shipped nine and installed none — files in a folder are not behaviour.
