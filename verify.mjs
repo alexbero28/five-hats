@@ -367,6 +367,54 @@ try {
   bad(`reach-path check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
 }
 
+// 4d-decies. THE SETTINGS — the actual point of the repo. Skills fire on a trigger; standing
+//     instructions shape the AI the rest of the time, the memory model stops state rotting, and
+//     the session hook is what makes any of it happen without somebody deciding to. Installing
+//     nine skills and calling that "the operating model" was shipping the accessories.
+try {
+  const s3 = join(os.tmpdir(), 'five-hats-verify-settings');
+  fs.rmSync(s3, { recursive: true, force: true });
+  fs.mkdirSync(join(s3, 'cfg'), { recursive: true });
+  fs.mkdirSync(join(s3, 'fx', 'app'), { recursive: true });
+  writeFileSync(join(s3, 'fx', 'app', 'package.json'), '{"name":"a"}');
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: join(s3, 'cfg'), FIVE_HATS_HOME: join(s3, 'h') };
+  execFileSync(process.execPath,
+    [join(root, 'install.mjs'), join(s3, 'fx'), '--registry', join(s3, 'p.json'), '--apply'],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 90000, env });
+
+  const missing = [
+    ['CLAUDE.md', join(s3, 'cfg', 'CLAUDE.md')],
+    ['settings.json', join(s3, 'cfg', 'settings.json')],
+    ['STATE.md', join(s3, 'fx', 'STATE.md')],
+    ['DECISIONS.md', join(s3, 'fx', 'DECISIONS.md')],
+  ].filter(([, p]) => !existsSync(p)).map(([n]) => n);
+  if (missing.length) bad(`install did not write the settings: ${missing.join(', ')}`);
+  else {
+    const st = JSON.parse(readFileSync(join(s3, 'cfg', 'settings.json'), 'utf8'));
+    const cmd = ((st.hooks || {}).SessionStart || []).flatMap((h) => h.hooks || []).map((h) => h.command).join(' ');
+    if (!/pulse\.mjs/.test(cmd)) bad('settings.json was written without the session trigger');
+    else ok('install writes the doctrine, the memory model and the session trigger');
+  }
+
+  // AND NEVER OVER THEIRS. A second install against a config that already has a CLAUDE.md and a
+  // settings.json must leave both untouched — an installer that edits somebody's standing
+  // instructions is the most invasive thing in this repo.
+  const mine = 'MY OWN INSTRUCTIONS — DO NOT TOUCH\n';
+  writeFileSync(join(s3, 'cfg', 'CLAUDE.md'), mine);
+  const settingsBefore = readFileSync(join(s3, 'cfg', 'settings.json'), 'utf8');
+  execFileSync(process.execPath,
+    [join(root, 'install.mjs'), join(s3, 'fx'), '--registry', join(s3, 'p.json'), '--apply'],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 90000, env });
+  if (readFileSync(join(s3, 'cfg', 'CLAUDE.md'), 'utf8') !== mine) bad('install OVERWROTE an existing CLAUDE.md');
+  else if (readFileSync(join(s3, 'cfg', 'settings.json'), 'utf8') !== settingsBefore) bad('install edited an existing settings.json');
+  else if (!existsSync(join(s3, 'cfg', 'five-hats-doctrine.md'))) bad('doctrine was neither installed nor placed alongside');
+  else ok('install never overwrites an existing CLAUDE.md or settings.json');
+
+  fs.rmSync(s3, { recursive: true, force: true });
+} catch (e) {
+  bad(`settings-install check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
+
 // 4e. THE SKILLS. The kit shipped nine and installed none — files in a folder are not behaviour.
 //     The installer must offer them, and must NEVER overwrite one the person already has.
 try {

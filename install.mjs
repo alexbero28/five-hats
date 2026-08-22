@@ -524,6 +524,138 @@ if (APPLY && process.env.FIVE_HATS_HOME && !process.env.CLAUDE_CONFIG_DIR
   process.exit(2);
 }
 const CLAUDE_HOME_SOURCE = process.env.CLAUDE_CONFIG_DIR ? 'CLAUDE_CONFIG_DIR' : 'default (~/.claude)';
+
+// -- step: the standing instructions, the memory model, and the session trigger -----------------
+// THE ACTUAL POINT OF THIS REPO. Skills fire on a trigger; they are not what shapes how the AI
+// behaves the rest of the time. That comes from standing instructions, a memory model that cannot
+// silently rot, and something that runs at the start of a session. Installing nine skills and
+// calling it "the operating model" was shipping the accessories and keeping the engine.
+//
+// All three are MECHANICAL: fixed text, written only where nothing of theirs exists, removed by
+// the same manifest as everything else. None of them decides anything for the person.
+const DOCTRINE_TEXT = `# How this workspace operates
+
+Installed by five-hats. Delete this file to opt out; nothing depends on it.
+
+## Three decisions never left to the model
+
+1. **What is true** — count it, do not recall it. Before stating anything about current state,
+   run the thing that counts. Remembered status is a guess wearing a suit.
+2. **What is done** — one command that exits pass or fail decides, not an opinion. If no such
+   command exists for a project, say so; that absence is the finding.
+3. **What ships** — a lane, and a human for anything irreversible.
+
+## Lanes — chosen before the work, never renegotiated after
+
+- **Fast** — docs, copy, tests, read-only screens. Do it and report.
+- **Tier-1** — anything that changes real output. Prepare it, get it green, then STOP for a human.
+- **Hard halt** — schema, customer data, money, legal, anything that sends or publishes.
+
+If a change *could* alter real output it is Tier-1. **Any doubt at all resolves to Tier-1.**
+
+## Standing rules
+
+- **Say what you could not see.** "Nothing found" and "nothing looked at" must never print the
+  same sentence. A check that reports clean while blind ends the search.
+- **A crash is not a result.** If a step failed, the output says so — it never reports the
+  remaining findings as though the set were complete.
+- **Report, never act** on anything destructive. Propose, explain, let a human decide.
+- **Never state more than the source knew.** Do not turn "cannot tell" into "no", or an absence
+  of evidence into an absence of the practice.
+- **Green is not used.** Passing checks and having a user are unrelated facts.
+
+## Memory
+
+\`STATE.md\` holds CURRENT STATE ONLY, capped short. History goes to \`DECISIONS.md\`, append-only
+and dated. Never write down a number you could count — it goes stale silently and nothing tells you.
+`;
+
+const STATE_TEMPLATE = `# STATE
+
+> The sole authority for current state. Current state ONLY — history belongs in DECISIONS.md.
+> Keep the checkpoint to five lines. It regrows the moment nobody is enforcing that, and a
+> resume file the tools can no longer parse fails silently for weeks.
+
+## Checkpoint (max 5 lines)
+
+- Last green:
+- Current phase:
+- Next action:
+- Blocked on:
+- Deep history → DECISIONS.md
+`;
+
+const DECISIONS_TEMPLATE = `# DECISIONS
+
+> Append-only. Dated. Never rewritten. This is where history lives so it stops colonising STATE.md.
+> One entry per decision, with the reason. The reason is the part you will want in six months.
+
+- **D-001 - ${new Date().toISOString().slice(0, 10)}** Adopted five-hats. Why: nothing was
+  triggering cleanup, usage-checking or decay-watching, so all three stopped happening.
+`;
+
+// 1. Standing instructions. Never over an existing CLAUDE.md — theirs wins, ours sits beside it.
+if (fs.existsSync(CLAUDE_HOME)) {
+  const theirs = path.join(CLAUDE_HOME, 'CLAUDE.md');
+  const ours = path.join(CLAUDE_HOME, 'five-hats-doctrine.md');
+  if (!fs.existsSync(theirs)) {
+    steps.push({
+      line: `WRITE    ${fwd(theirs)}`,
+      detail: `${Buffer.byteLength(DOCTRINE_TEXT)} bytes — the standing instructions. This is what shapes the AI between skill triggers`,
+      do() {
+        fs.mkdirSync(CLAUDE_HOME, { recursive: true });
+        record({ action: 'write', path: theirs, kind: 'doctrine', sha256: sha(Buffer.from(DOCTRINE_TEXT)), bytes: Buffer.byteLength(DOCTRINE_TEXT) });
+        fs.writeFileSync(theirs, DOCTRINE_TEXT);
+      },
+    });
+  } else if (!fs.existsSync(ours)) {
+    steps.push({
+      line: `WRITE    ${fwd(ours)}`,
+      detail: `${Buffer.byteLength(DOCTRINE_TEXT)} bytes — you already have a CLAUDE.md, so this sits BESIDE it, untouched. Reference it from yours if you want it loaded`,
+      do() {
+        record({ action: 'write', path: ours, kind: 'doctrine-alongside', sha256: sha(Buffer.from(DOCTRINE_TEXT)), bytes: Buffer.byteLength(DOCTRINE_TEXT) });
+        fs.writeFileSync(ours, DOCTRINE_TEXT);
+      },
+    });
+    skipped.push('your CLAUDE.md is untouched — ours is written alongside as five-hats-doctrine.md');
+  }
+}
+
+// 2. The memory model, in the target folder. Templates only; the judgment fields stay empty
+//    because a checkpoint somebody else filled in is worse than an empty one.
+for (const [file, text] of [['STATE.md', STATE_TEMPLATE], ['DECISIONS.md', DECISIONS_TEMPLATE]]) {
+  const dest = path.join(target, file);
+  if (fs.existsSync(dest)) { skipped.push(`${file} already exists in ${fwd(target)} — left exactly as it is`); continue; }
+  steps.push({
+    line: `WRITE    ${fwd(dest)}`,
+    detail: `${Buffer.byteLength(text)} bytes — ${file === 'STATE.md' ? 'current state only, capped at five lines' : 'append-only history, so it stops filling STATE.md'}`,
+    do() {
+      record({ action: 'write', path: dest, kind: `memory-${file}`, sha256: sha(Buffer.from(text)), bytes: Buffer.byteLength(text) });
+      fs.writeFileSync(dest, text);
+    },
+  });
+}
+
+// 3. The session trigger. Editing an existing settings.json is where installers go to die, so a
+//    file that already exists is never touched — the exact snippet is printed instead.
+if (fs.existsSync(CLAUDE_HOME)) {
+  const settings = path.join(CLAUDE_HOME, 'settings.json');
+  const pulseCmd = `node ${fwd(path.join(HERE, 'pulse.mjs'))} --quiet --registry ${fwd(REG_PATH)} 2>&1 || true`;
+  if (!fs.existsSync(settings)) {
+    const body = `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: pulseCmd, timeout: 30 }] }] } }, null, 2)}\n`;
+    steps.push({
+      line: `WRITE    ${fwd(settings)}`,
+      detail: `${Buffer.byteLength(body)} bytes — runs the pulse when a session starts. This is the trigger that makes the rest happen without you deciding to`,
+      do() {
+        record({ action: 'write', path: settings, kind: 'session-hook', sha256: sha(Buffer.from(body)), bytes: Buffer.byteLength(body) });
+        fs.writeFileSync(settings, body);
+      },
+    });
+  } else {
+    skipped.push(`settings.json exists and is NOT edited — programmatic edits to somebody's config are how installers break things. Add this to hooks.SessionStart yourself:\n             {"type":"command","command":"${pulseCmd}","timeout":30}`);
+  }
+}
+
 const SKILLS_SRC = path.join(HERE, 'skills');
 const SKILLS_DEST = path.join(CLAUDE_HOME, 'skills');
 if (fs.existsSync(SKILLS_SRC)) {
