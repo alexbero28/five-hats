@@ -95,20 +95,40 @@ for (const [name, cfg] of resolveTargets()) {
   // files, was reported as "survives a disk failure: all covered". Reported clean because
   // nothing looked, on the one subject where being wrong costs you the work itself.
   // No git is strictly WORSE than a missing remote, so it emits the stronger finding.
-  if (!fs.existsSync(path.join(root, '.git'))) {
+  // ASK GIT, do not look for a folder. `fs.existsSync(root/.git)` is wrong for the most ordinary
+  // layout there is: a project that lives INSIDE a larger repository has no .git of its own, and
+  // is perfectly versioned. Checking for the folder reported 234 tracked files, with a GitHub
+  // remote, as "no git at all — nothing to recover".
+  //
+  // This is the second version of this check to be wrong, in opposite directions. It first
+  // `continue`d past everything and said nothing (a fail-open, caught by an outside reviewer);
+  // the fix then asserted the OPPOSITE OF THE TRUTH about somebody's backups, which is worse —
+  // a silent miss leaves you where you were, a false assertion moves you somewhere wrong.
+  // Both versions shared one cause: inferring a fact from a proxy instead of asking the
+  // authority. git rev-parse IS the authority, and it costs one process.
+  const topLevel = git(root, 'git rev-parse --show-toplevel');
+  if (!topLevel) {
     add('serious', name, 'not under version control',
       'no git at all — nothing to push, nothing to recover, no history to fall back on');
     continue;
   }
+  // A subdirectory of a repo is versioned BY that repo; every check below is about the repo it
+  // belongs to, so run them there and say which one, or the reader cannot act on the finding.
+  const owned = path.resolve(topLevel) !== path.resolve(root);
+  const gitRoot = owned ? path.resolve(topLevel) : root;
+  if (owned) {
+    add('info', name, 'versioned by a parent repository',
+      `tracked in ${path.basename(gitRoot)} — the checks below describe that repo, not this folder alone`);
+  }
 
   // 4. NO REMOTE. One disk failure from gone.
-  const remote = git(root, 'git remote');
+  const remote = git(gitRoot, 'git remote');
   if (!remote) {
     add('warn', name, 'no git remote', 'exists on exactly one disk — bundle it or add a remote');
   } else {
     // 5. UNPUSHED WORK AGEING. Committed but never pushed is invisible to every other machine.
-    const branch = git(root, 'git rev-parse --abbrev-ref HEAD');
-    let ahead = git(root, `git rev-list --count origin/${branch}..HEAD 2>/dev/null`);
+    const branch = git(gitRoot, 'git rev-parse --abbrev-ref HEAD');
+    let ahead = git(gitRoot, `git rev-list --count origin/${branch}..HEAD 2>/dev/null`);
     let where = `${branch} is ahead of origin`;
     if (ahead === null) {
       // origin/<branch> does not exist — the branch has never been pushed at all (or HEAD is
@@ -116,11 +136,11 @@ for (const [name, cfg] of resolveTargets()) {
       // fail-open found six times today: the WORST unpushed case — commits that exist on no
       // remote anywhere — was the one case that produced no finding. Count against every
       // remote instead, which is what "unpushed" actually means.
-      ahead = git(root, 'git rev-list --count HEAD --not --remotes');
+      ahead = git(gitRoot, 'git rev-list --count HEAD --not --remotes');
       where = `${branch} has never been pushed to any remote`;
     }
     if (ahead && Number(ahead) > 0) {
-      const when = git(root, 'git log -1 --format=%ct');
+      const when = git(gitRoot, 'git log -1 --format=%ct');
       const days = when ? Math.floor((Date.now() / 1000 - Number(when)) / 86400) : 0;
       if (days >= 3) add('warn', name, `${ahead} commit(s) unpushed for ${days}d`, where);
     }
@@ -129,13 +149,13 @@ for (const [name, cfg] of resolveTargets()) {
   // 6. A SECRET UNDER VERSION CONTROL. The one mistake that cannot be undone by a later commit.
   // .env.example / .sample / .template hold PLACEHOLDERS and are supposed to be committed —
   // flagging them as leaked secrets is crying wolf in the one category that must stay credible.
-  const tracked = git(root,
+  const tracked = git(gitRoot,
     "git ls-files | grep -E '(^|/)\\.env($|\\.)|secrets/.*\\.env$' "
     + "| grep -vE '\\.(example|sample|template|dist)$' | head -5");
   if (tracked) add('serious', name, 'secret file is TRACKED by git', tracked.split('\n').join(', '));
 
   // 7. A LARGE UNCOMMITTED TREE. Work nobody can review, restore, or reason about.
-  const dirty = git(root, 'git status --porcelain | wc -l');
+  const dirty = git(gitRoot, 'git status --porcelain | wc -l');
   if (dirty && Number(dirty) >= 25) {
     add('info', name, `${Number(dirty)} uncommitted files`, 'large enough that a mistake is hard to unpick');
   }

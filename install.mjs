@@ -435,7 +435,24 @@ if (GLOBAL) {
 // distinction archetypes.mjs was written to expose, left open inside the installer itself.
 //
 // Claude Code only, because ~/.claude is its directory. Absent = skipped and SAID, never assumed.
-const CLAUDE_HOME = path.join(os.homedir(), '.claude');
+// CLAUDE_CONFIG_DIR is the authority, not ~/.claude. Claude Code reads that variable, and people
+// use it precisely to ISOLATE one workspace from their other sessions. Hard-coding the home path
+// meant: the nine skills land where this workspace never reads them (inert, while the installer
+// reports success), AND they appear in every unrelated session — a change nobody asked for, on a
+// machine nobody can debug from here.
+//
+// Note the shape. The dry run disclosed the true path and the true bytes; it was the CLAIM about
+// what the write ACHIEVES that was wrong. That is this kit's defect class in its hardest form:
+// it survives perfect disclosure, because the reader checks the facts, finds them accurate, and
+// still walks away believing something untrue.
+//
+// It also only reproduces on a machine where that variable points somewhere non-standard — which
+// no CI configures. Found by a reviewer, on her machine, reading a dry run she then declined to
+// apply. That is the argument for handing the tool to someone else, made concrete.
+const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR
+  ? path.resolve(process.env.CLAUDE_CONFIG_DIR)
+  : path.join(os.homedir(), '.claude');
+const CLAUDE_HOME_SOURCE = process.env.CLAUDE_CONFIG_DIR ? 'CLAUDE_CONFIG_DIR' : 'default (~/.claude)';
 const SKILLS_SRC = path.join(HERE, 'skills');
 const SKILLS_DEST = path.join(CLAUDE_HOME, 'skills');
 if (fs.existsSync(SKILLS_SRC)) {
@@ -460,7 +477,16 @@ if (fs.existsSync(SKILLS_SRC)) {
       const text = readIf(from);
       steps.push({
         line: `WRITE    ${fwd(to)}`,
-        detail: `${Buffer.byteLength(text)} bytes — the "${d}" skill. Loads on a trigger, costs nothing until it fires`,
+        // NEVER claim the outcome, only the action — unless the outcome is actually checked.
+        // "Loads on a trigger" was true on the author's machine and false on the reviewer's, and
+        // no amount of accurate path-and-byte disclosure fixed it: she verified every fact, all
+        // of them held, and the sentence still told her she was gaining something she was not.
+        // So the claim is now conditional on the thing that makes it true.
+        detail: `${Buffer.byteLength(text)} bytes — the "${d}" skill. `
+          + `Read from ${CLAUDE_HOME_SOURCE}`
+          + (process.env.CLAUDE_CONFIG_DIR
+            ? ' — this workspace loads it on a trigger'
+            : ' — loads on a trigger in sessions that use the default config dir'),
         do() {
           fs.mkdirSync(path.dirname(to), { recursive: true });
           record({ action: 'write', path: to, kind: `skill-${d}`, sha256: sha(Buffer.from(text)), bytes: Buffer.byteLength(text) });

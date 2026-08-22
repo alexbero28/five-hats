@@ -133,6 +133,64 @@ try {
   bad(`pulse checks failed: ${String(e.stderr || e.message).split('\n')[0]}`);
 }
 
+// 4d-bis. VERSION CONTROL, BOTH DIRECTIONS. This check has now been wrong twice in opposite
+//     directions — first silent on the worst case, then asserting "no git at all" about 234
+//     tracked files in a parent repo. Neither version had a test. Both directions get one now.
+try {
+  // OUTSIDE any repo. The first version of this fixture sat inside the kit's own git repo, so
+  // the "unversioned" folder was correctly reported as versioned — the check failed for a reason
+  // that had nothing to do with the behaviour, which is its own kind of wrong.
+  const fx = join(os.tmpdir(), 'five-hats-verify-vc');
+  fs.rmSync(fx, { recursive: true, force: true });
+  fs.mkdirSync(join(fx, 'repo', 'child'), { recursive: true });
+  fs.mkdirSync(join(fx, 'loose'), { recursive: true });
+  writeFileSync(join(fx, 'repo', 'child', 'a.mjs'), 'export const a = 1;\n');
+  writeFileSync(join(fx, 'loose', 'a.mjs'), 'export const a = 1;\n');
+  const g = (args, cwd) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+  g(['init', '-q'], join(fx, 'repo'));
+  g(['add', '-A'], join(fx, 'repo'));
+  g(['-c', 'user.email=v@v.v', '-c', 'user.name=V', 'commit', '-qm', 'init'], join(fx, 'repo'));
+
+  const drift = (p) => execFileSync(process.execPath, [join(root, 'drift.mjs'), p, '--json'],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 60000 });
+
+  const child = JSON.parse(drift(join(fx, 'repo', 'child')));
+  if (child.some((d) => /not under version control/i.test(d.what))) {
+    bad('drift: a tracked subdirectory of a repo is reported as having no version control');
+  } else ok('drift does not call a tracked subdirectory "not under version control"');
+
+  const loose = JSON.parse(drift(join(fx, 'loose')));
+  if (!loose.some((d) => /not under version control/i.test(d.what) && d.sev === 'serious')) {
+    bad('drift: a genuinely unversioned folder was NOT reported serious');
+  } else ok('drift still catches a genuinely unversioned folder');
+
+  fs.rmSync(fx, { recursive: true, force: true });
+} catch (e) {
+  bad(`version-control checks failed: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
+
+// 4d-ter. The installer must write skills where the AI actually READS them. Hard-coding ~/.claude
+//     put them somewhere inert while reporting success, on any machine using CLAUDE_CONFIG_DIR.
+try {
+  const cfg = join(root, '.verify-cfg');
+  fs.rmSync(cfg, { recursive: true, force: true });
+  fs.mkdirSync(join(cfg, 'studio', 'skills'), { recursive: true });
+  fs.mkdirSync(join(cfg, 'fx', 'app'), { recursive: true });
+  writeFileSync(join(cfg, 'fx', 'app', 'package.json'), '{"name":"a"}\n');
+  const out = execFileSync(process.execPath,
+    [join(root, 'install.mjs'), join(cfg, 'fx'), '--registry', join(cfg, 'p.json')],
+    { encoding: 'utf8', stdio: 'pipe', timeout: 60000,
+      env: { ...process.env, CLAUDE_CONFIG_DIR: join(cfg, 'studio'), FIVE_HATS_HOME: join(cfg, 'h') } });
+  const toStudio = (out.match(/WRITE .*studio[\\/]skills[\\/]/g) || []).length;
+  const toHome = /WRITE .*[\\/]\.claude[\\/]skills[\\/]/.test(out);
+  if (!toStudio) bad('installer ignores CLAUDE_CONFIG_DIR — skills would land where nothing reads them');
+  else if (toHome) bad('installer wrote skills to ~/.claude despite CLAUDE_CONFIG_DIR being set');
+  else ok(`installer honours CLAUDE_CONFIG_DIR (${toStudio} skills to the configured dir)`);
+  fs.rmSync(cfg, { recursive: true, force: true });
+} catch (e) {
+  bad(`CLAUDE_CONFIG_DIR check failed: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
+
 // 4e. THE SKILLS. The kit shipped nine and installed none — files in a folder are not behaviour.
 //     The installer must offer them, and must NEVER overwrite one the person already has.
 try {
