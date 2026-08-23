@@ -54,8 +54,37 @@ node baseline.mjs .. --save --report   # the before-picture
 node sweep.mjs ../your-repo            # what nothing reads
 node reach.mjs ../your-repo            # has a real person ever used this
 node drift.mjs ../your-repo            # what is quietly decaying
+node state.mjs ../your-repo            # does a new session know where you left off
 node fix.mjs ../your-repo --brief      # what to do about all of it
 ```
+
+### The one that is about you, not the code
+
+`sweep`, `reach` and `drift` all ask questions about the codebase. `state.mjs` asks the one
+question about **the session** — whether the next one starts knowing anything.
+
+`SETUP.md` already tells you to keep a `STATE.md` capped at five lines. That advice is right and
+it is not enough, because it is advice: it asks a person to remember to maintain the file whose
+entire purpose is that nobody should have to remember anything.
+
+We know it is not enough because we ran it that way. Our writer was correct, idempotent and
+tested — and wired to nothing, because the session-close hook ran three other things and never it.
+It then spent a full day describing **the wrong repository**: a file headed with one project's
+name carrying an archived project's commit, under a check that looked green because the check was
+pointed at the wrong repo too. The symptom, for months, was *"I keep upgrading this and it goes
+stale; a new session never picks up where we left off."*
+
+```bash
+node state.mjs ../your-projects            # read-only: which STATE files have gone stale
+node state.mjs ../your-projects --write    # bring them up to date
+```
+
+It writes only the block between two markers. Your five-line checkpoint, your next action, your
+own notes are never edited, reordered or removed. Files land in `state/`, which is gitignored —
+they describe *your* work and do not belong in this repo.
+
+Then make it run on its own. A state file you have to remember to update is the problem it was
+meant to solve.
 
 > **Scope, stated up front.** `reach.mjs`, `drift.mjs` and the spine are **language-agnostic** —
 > they work the same on Python, Go, Swift or anything else. `sweep.mjs` analyses **JavaScript,
