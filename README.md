@@ -37,7 +37,8 @@ five-hats-report/
    02-who-has-used-it.txt
    03-what-is-decaying.txt
    04-where-the-work-goes.txt    the files eating your time
-   05-the-plan.txt               every finding, its fix, and its trap
+   05-can-your-checks-fail.txt   gates that cannot say no
+   06-the-plan.txt               every finding, its fix, and its trap
    AGENT-BRIEF.md                hand this to your AI
 ```
 
@@ -55,6 +56,7 @@ node sweep.mjs ../your-repo            # what nothing reads
 node reach.mjs ../your-repo            # has a real person ever used this
 node drift.mjs ../your-repo            # what is quietly decaying
 node state.mjs ../your-repo            # does a new session know where you left off
+node gates.mjs ../your-repo            # can your checks actually fail
 node fix.mjs ../your-repo --brief      # what to do about all of it
 ```
 
@@ -80,8 +82,8 @@ node state.mjs ../your-projects --write    # bring them up to date
 ```
 
 It writes only the block between two markers. Your five-line checkpoint, your next action, your
-own notes are never edited, reordered or removed. Files land in `state/`, which is gitignored —
-they describe *your* work and do not belong in this repo.
+own notes are never edited, reordered or removed. Files land in `.five-hats-state/` beside the projects they
+describe — they are *your* work and do not belong in this repo.
 
 Then make it run on its own. A state file you have to remember to update is the problem it was
 meant to solve.
@@ -91,8 +93,10 @@ meant to solve.
 > TypeScript and Python**; it detects Go, Rust, Ruby and PHP and says plainly that it is not
 > analysing them, and why. Run `node sweep.mjs --langs` to see the whole table.
 > `reach.mjs` guesses at folder names and says **"can't tell"** when it doesn't recognise yours.
-> `drift.mjs` needs git for six of its eight checks. Knowing what a tool cannot see is worth more
-> than a clean report from one that was blind.
+> `drift.mjs` needs git for six of its eight checks. `gates.mjs` only examines files NAMED like a
+> check — `verify`, `guard`, `lint`, `audit` and their kin — so a gate you named something else is
+> invisible to it, and it says how many it read so you can tell nothing-found from nothing-looked-at.
+> Knowing what a tool cannot see is worth more than a clean report from one that was blind.
 
 ---
 

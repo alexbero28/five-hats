@@ -179,21 +179,24 @@ const sweepOut = run('sweep.mjs', ['--registry', regPath], 'sweep');
 const reachOut = run('reach.mjs', ['--registry', regPath], 'reach');
 const driftOut = run('drift.mjs', ['--registry', regPath], 'drift');
 const hotOut = run('hotspots.mjs', ['--registry', regPath], 'hotspots');
+const gatesOut = run('gates.mjs', ['--registry', regPath], 'gates');
 written.push(save('01-what-nothing-reads.txt', sweepOut));
 written.push(save('02-who-has-used-it.txt', reachOut));
 written.push(save('03-what-is-decaying.txt', driftOut));
 written.push(save('04-where-the-work-goes.txt', hotOut));
+written.push(save('05-can-your-checks-fail.txt', gatesOut));
 const tally = (s, re) => (s.match(re) || ['—'])[0];
 console.log(`      what nothing reads   ${tally(sweepOut, /\d+ finding\(s\)[^\n]*/)}`);
 console.log(`      who has used it      ${tally(reachOut, /\d+ reached[^\n]*/)}`);
 console.log(`      what is decaying     ${tally(driftOut, /\d+ serious[^\n]*/)}`);
+console.log(`      can checks fail      ${tally(gatesOut, /\d+ finding\(s\)[^\n]*/)}`);
 const hotLine = (hotOut.match(/start with [^\n]*/) || [''])[0].trim();
 console.log(`      where the work goes  ${hotLine || 'no git history to measure'}`);
 
 // ---- 4 + 5. the plan and the brief ---------------------------------------------------------------
 step(5, 'Writing the plan');
 const planOut = run('fix.mjs', ['--registry', regPath, '--brief'], 'fix');
-written.push(save('05-the-plan.txt', planOut));
+written.push(save('06-the-plan.txt', planOut));
 const counts = planOut.match(/(\d+) mechanical · (\d+) needing a decision/);
 if (counts) console.log(`      ${counts[1]} mechanical (safe to automate) · ${counts[2]} needing a human decision`);
 

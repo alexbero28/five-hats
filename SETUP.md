@@ -61,6 +61,7 @@ skills lived for two months.
 node sweep.mjs ../your-repo     # what nothing reads
 node reach.mjs ../your-repo     # has a real person ever used this
 node drift.mjs ../your-repo     # what is quietly decaying
+node gates.mjs ../your-repo     # can your checks actually fail
 ```
 
 Read what comes back before you change anything. The first run is the most informative one you'll
@@ -73,7 +74,8 @@ Two findings tend to land hardest: a **DEAD DIR** you'd forgotten was in there, 
 > analyses JavaScript, TypeScript and Python, and *names* the languages it will not analyse
 > instead of skipping them silently — `node sweep.mjs --langs` prints the full table.
 > `reach.mjs` says **"can't tell"** when it doesn't recognise your folder names. `drift.mjs` needs
-> git for six of its eight checks.
+> git for six of its eight checks. `gates.mjs` reads only files named like a check, and prints how
+> many it read — a gate you named something else is invisible to it.
 
 ---
 

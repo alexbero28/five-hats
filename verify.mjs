@@ -20,7 +20,7 @@ const ok = (m) => console.log(`  ok   ${m}`);
 const bad = (m) => { fail.push(m); console.log(`  FAIL ${m}`); };
 console.log('five-hats-kit verify\n');
 
-const CHECKS = ['sweep.mjs', 'reach.mjs', 'drift.mjs', 'baseline.mjs', 'fix.mjs', 'hotspots.mjs', 'archetypes.mjs', 'pulse.mjs'];
+const CHECKS = ['sweep.mjs', 'reach.mjs', 'drift.mjs', 'baseline.mjs', 'fix.mjs', 'hotspots.mjs', 'archetypes.mjs', 'pulse.mjs', 'state.mjs', 'gates.mjs'];
 // start.mjs is checked for presence and parse but NOT run here: it refuses (exit 1) when its
 // target holds no project-shaped folders, which is correct behaviour and would fail this gate.
 // install.mjs and results.mjs refuse for the same reason, and both get their own full-exercise
@@ -297,7 +297,7 @@ try {
   const run = (tool) => execFileSync(process.execPath, [join(root, tool), join(s, 'real'), '--json'],
     { encoding: 'utf8', stdio: 'pipe', timeout: 60000, cwd: s });
   let wrong = [];
-  for (const tool of ['sweep.mjs', 'drift.mjs', 'reach.mjs', 'hotspots.mjs']) {
+  for (const tool of ['sweep.mjs', 'drift.mjs', 'reach.mjs', 'hotspots.mjs', 'gates.mjs']) {
     let names = [];
     try {
       const j = JSON.parse(run(tool));
