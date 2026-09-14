@@ -62,7 +62,14 @@ const target = path.resolve(positional[0] || '..');
 if (!fs.existsSync(target)) { console.error(`\n  No such folder: ${target}\n`); process.exit(2); }
 
 const entries = fs.readdirSync(target, { withFileTypes: true })
-  .filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules');
+  // A symlinked project (or a Windows junction) is not isDirectory() on the Dirent — follow it,
+  // or a folder of linked projects is refused as empty.
+  .filter((d) => {
+    if (d.name.startsWith('.') || d.name === 'node_modules') return false;
+    if (d.isDirectory()) return true;
+    if (!d.isSymbolicLink()) return false;
+    try { return fs.statSync(path.join(target, d.name)).isDirectory(); } catch { return false; }
+  });
 const looksLikeProject = (d) => {
   const p = path.join(target, d.name);
   return ['.git', 'package.json', 'pyproject.toml', 'go.mod', 'Cargo.toml', 'Gemfile', 'requirements.txt']
@@ -227,7 +234,7 @@ console.log(`\n${B('  What to do next, in order:')}\n`);
 console.log(`  1. Open the ${B('baseline HTML')} — that is where you are today. Keep the .json;`);
 console.log('     it is the only honest "before" you will get, and re-running --compare later');
 console.log('     is what proves anything improved.');
-console.log(`\n  2. Read ${B('05-the-plan.txt')}. Do the MECHANICAL items first — they are cheap`);
+console.log(`\n  2. Read ${B('06-the-plan.txt')}. Do the MECHANICAL items first — they are cheap`);
 console.log('     and they cannot bite you.');
 console.log(`\n  3. Hand ${B('AGENT-BRIEF.md')} to your AI assistant. It carries how to work, not`);
 console.log('     just what to fix. Let it do the mechanical half while you watch, and make it');

@@ -146,8 +146,10 @@ function discover(target) {
   let entries;
   try { entries = fs.readdirSync(target, { withFileTypes: true }); } catch { return null; }
   return entries
-    .filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
+    .filter((d) => !d.name.startsWith('.') && d.name !== 'node_modules')
     .map((d) => path.join(target, d.name))
+    // follow symlinks and Windows junctions — a Dirent reports those as not-a-directory
+    .filter((p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } })
     .filter((p) => MARKERS.some((m) => fs.existsSync(path.join(p, m))));
 }
 

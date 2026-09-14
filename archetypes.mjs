@@ -44,8 +44,10 @@ const countDir = (p) => { try { return fs.readdirSync(p).length; } catch { retur
 const kids = (() => {
   try {
     return fs.readdirSync(ROOT, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
-      .map((d) => path.join(ROOT, d.name));
+      .filter((d) => !d.name.startsWith('.') && d.name !== 'node_modules')
+      .map((d) => path.join(ROOT, d.name))
+      // follow symlinks and Windows junctions — a Dirent reports those as not-a-directory
+      .filter((p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } });
   } catch { return []; }
 })();
 const scopes = [ROOT, ...kids];
