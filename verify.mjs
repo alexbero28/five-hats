@@ -25,7 +25,7 @@ const CHECKS = ['sweep.mjs', 'reach.mjs', 'drift.mjs', 'baseline.mjs', 'fix.mjs'
 // target holds no project-shaped folders, which is correct behaviour and would fail this gate.
 // install.mjs and results.mjs refuse for the same reason, and both get their own full-exercise
 // checks (7 and 8 below) against a sandbox instead — running them bare would prove less.
-const TOOLS = ['bin/project.mjs', 'bin/secret-guard.mjs', 'start.mjs', 'install.mjs', 'results.mjs', 'kit-version.mjs', 'memory.mjs'];
+const TOOLS = ['bin/project.mjs', 'bin/secret-guard.mjs', 'start.mjs', 'install.mjs', 'results.mjs', 'kit-version.mjs', 'memory.mjs', 'sessions.mjs', 'doctrine-text.mjs'];
 
 // 1. Everything the README promises is actually here.
 for (const f of [...CHECKS, ...TOOLS, 'README.md', 'DOCTRINE.md', 'SETUP.md', 'projects.example.json', '.private-terms.example']) {
@@ -715,6 +715,81 @@ if (!hasGit) {
     } else bad(`uninstall left the tree changed (exit ${un.status})`);
   } finally {
     fs.rmSync(sb, { recursive: true, force: true });
+  }
+}
+
+// 9. SESSIONS → WIRE → UNDO, end to end, against fake transcripts. The claim under test is the
+//    whole arc: a person who already has a CLAUDE.md installs, works, the numbers move, the kit
+//    recommends loading the rules, one consent adds one line, and --uninstall hands their
+//    CLAUDE.md back byte-identical. Any link failing silently would leave the rules inert again.
+{
+  const sx = fs.mkdtempSync(join(os.tmpdir(), 'fh-sessions-'));
+  try {
+    const cfg = join(sx, 'cfg');
+    const home = join(sx, 'home');
+    const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg, FIVE_HATS_HOME: home };
+    const run = (file, args) => spawnSync(process.execPath, [join(root, file), ...args], { encoding: 'utf8', env, timeout: 60000 });
+    const tdir = join(cfg, 'projects', 'p');
+    fs.mkdirSync(tdir, { recursive: true });
+    fs.mkdirSync(home, { recursive: true });
+    const theirs = '# mine\n\nMy own rules. Nothing may move these.\n';
+    writeFileSync(join(cfg, 'CLAUDE.md'), theirs);
+    // A fake session: one prompt, one answer claiming done — with or without the work behind it.
+    const session = (day, good) => {
+      const at = `${day}T12:00:00.000Z`;
+      const tools = good ? [
+        { type: 'tool_use', name: 'Skill', input: { skill: 'verify-decides-done' } },
+        { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } },
+        { type: 'tool_use', name: 'Write', input: { file_path: '/p/STATE.md' } },
+      ] : [];
+      return [
+        { type: 'user', timestamp: at, message: { role: 'user', content: 'fix the login bug' } },
+        { type: 'assistant', timestamp: at, message: { role: 'assistant', content: [...tools, { type: 'text', text: 'Fixed, it is done.' }] } },
+      ].map((o) => JSON.stringify(o)).join('\n');
+    };
+    for (let d = 1; d <= 10; d += 1) {
+      writeFileSync(join(tdir, `b${d}.jsonl`), session(`2026-01-${String(d).padStart(2, '0')}`, false));
+      writeFileSync(join(tdir, `a${d}.jsonl`), session(`2026-02-${String(d + 1).padStart(2, '0')}`, true));
+    }
+    writeFileSync(join(tdir, 'noise.jsonl'), '{"type":"user","message":{"content":"<command-name>/clear</command-name>"}}\nnot json\n');
+    writeFileSync(join(home, 'install-manifest.jsonl'), `${JSON.stringify({ v: KIT_VERSION, at: '2026-02-01T00:00:00.000Z', action: 'mkdir', path: home })}\n`);
+
+    const j1 = JSON.parse(run('sessions.mjs', ['--json']).stdout || '{}');
+    j1.verdict === 'wire' && j1.before.sessions === 10 && j1.after.sessions === 10 && j1.comparison.worse === 0
+      ? ok('sessions.mjs recommends loading the rules once the numbers move (10 before, 10 after, none worse)')
+      : bad(`sessions.mjs verdict was '${j1.verdict}', expected 'wire' (${j1.headline})`);
+
+    const dry = run('install.mjs', ['--wire-doctrine']);
+    dry.status === 0 && readFileSync(join(cfg, 'CLAUDE.md'), 'utf8') === theirs && !existsSync(join(cfg, 'five-hats-doctrine.md'))
+      ? ok('install.mjs --wire-doctrine dry run changes nothing') : bad('--wire-doctrine dry run wrote something');
+
+    const ap = run('install.mjs', ['--wire-doctrine', '--apply']);
+    const after = readFileSync(join(cfg, 'CLAUDE.md'), 'utf8');
+    ap.status === 0 && after.startsWith(theirs) && /\n@five-hats-doctrine\.md\n$/.test(after) && existsSync(join(cfg, 'five-hats-doctrine.md'))
+      ? ok('--wire-doctrine --apply appends one import and leaves every existing byte in place')
+      : bad(`--wire-doctrine --apply did not append cleanly (exit ${ap.status})`);
+
+    const again = run('install.mjs', ['--wire-doctrine', '--apply']);
+    again.status === 0 && readFileSync(join(cfg, 'CLAUDE.md'), 'utf8') === after
+      ? ok('--wire-doctrine is idempotent — a second apply adds nothing') : bad('--wire-doctrine appended twice');
+
+    const j2 = JSON.parse(run('sessions.mjs', ['--json']).stdout || '{}');
+    j2.verdict === 'wait' && j2.wiredAt && j2.load.doctrineLoaded
+      ? ok('after wiring, sessions.mjs starts a new window instead of re-recommending')
+      : bad(`after wiring, verdict was '${j2.verdict}', expected 'wait'`);
+
+    const un = run('install.mjs', ['--uninstall']);
+    un.status === 0 && readFileSync(join(cfg, 'CLAUDE.md'), 'utf8') === theirs && !existsSync(join(cfg, 'five-hats-doctrine.md'))
+      ? ok('--uninstall hands the CLAUDE.md back byte-identical') : bad(`uninstall did not restore CLAUDE.md (exit ${un.status})`);
+
+    const blindEnv = { ...env, CLAUDE_CONFIG_DIR: join(sx, 'nothing-here') };
+    const jb = JSON.parse(spawnSync(process.execPath, [join(root, 'sessions.mjs'), '--json'], { encoding: 'utf8', env: blindEnv }).stdout || '{}');
+    jb.verdict === 'blind' ? ok('sessions.mjs with no transcripts says it is blind, not "no change"')
+      : bad(`sessions.mjs with no transcripts returned '${jb.verdict}'`);
+  } catch (e) {
+    bad(`sessions/wire round-trip crashed: ${String(e.message).split('\n')[0]}`);
+  } finally {
+    fs.rmSync(sx, { recursive: true, force: true });
   }
 }
 

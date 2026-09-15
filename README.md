@@ -460,6 +460,36 @@ terminal open to read why. So the hook hunts for node, and when it truly cannot 
 steps aside *loudly* — the commit proceeds, the message says it was not scanned, nothing is ever
 blocked by absence. The verify proves this exact behaviour before every release.
 
+## `sessions.mjs` — did the way you work actually change?
+
+Almost everyone already has a `CLAUDE.md` and a `settings.json`, and the installer never edits
+either. So for most people the standing rules are written *beside* their `CLAUDE.md` and **do not
+load**, and the session hooks are printed rather than wired. The kit installs; the part that shapes
+behaviour between skill triggers sits inert.
+
+Asking you to edit your `CLAUDE.md` on trust is the wrong fix. Evidence is the right one:
+
+```bash
+node sessions.mjs                          # your sessions before install vs after, and the verdict
+node install.mjs --wire-doctrine           # DRY RUN — the exact line it would add to your CLAUDE.md
+node install.mjs --wire-doctrine --apply   # add it. --uninstall takes it back out, byte-identical
+```
+
+**The before-picture already exists.** Claude Code keeps your session transcripts on disk (about
+30 days by default), so the comparison starts on the day you install — no waiting to record a
+"before". It counts, per session: how often a "done" came with a check actually run in the same
+turn, how often a skill fired, how often where-things-stand got written down, and how often you
+had to correct the AI. Nothing from a transcript is ever printed — only counts.
+
+When at least two of those improve and none get worse while the rules are *still not loading*, it
+says so and hands you the one change: a single import line appended to the end of your `CLAUDE.md`.
+Nothing already in the file moves. After that it compares the sessions since the line with the
+ones before it — and if they got worse, it tells you to take the line back out. The pulse repeats
+the recommendation once a day until you decide, and stays silent otherwise.
+
+It is a before/after, not an experiment: your projects and the month changed too, and two rows
+match phrases. The output says both.
+
 ## `results.mjs` — the page you hand to someone
 
 The terminal output convinces the person who ran it. It convinces nobody else.

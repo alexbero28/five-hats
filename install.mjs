@@ -49,6 +49,7 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { KIT_VERSION } from './kit-version.mjs';
+import { DOCTRINE_TEXT } from './doctrine-text.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -65,6 +66,10 @@ const HOME_DIR = process.env.FIVE_HATS_HOME || path.join(os.homedir(), '.five-ha
 const MANIFEST = path.join(HOME_DIR, 'install-manifest.jsonl');
 const UNDO = path.join(HOME_DIR, 'UNDO.md');
 const REG_PATH = path.resolve(val('registry') || path.join(HERE, 'projects.json'));
+// Where Claude Code reads its config. CLAUDE_CONFIG_DIR is the authority — see the skills step.
+const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR
+  ? path.resolve(process.env.CLAUDE_CONFIG_DIR)
+  : path.join(os.homedir(), '.claude');
 
 const B = (s) => `\x1b[1m${s}\x1b[0m`;
 const DIM = (s) => `\x1b[2m${s}\x1b[0m`;
@@ -236,6 +241,17 @@ function uninstall() {
       } else left(`${p} — changed since install; your edits, so not deleted`);
       continue;
     }
+    if (e.action === 'append') {
+      // Lines added to a file that is otherwise theirs. Take out exactly those bytes, once, and
+      // only if they are still there verbatim — an edited block is theirs now, and is named.
+      const cur = readIf(e.path);
+      if (cur === null) { done(`${e.path} (already gone)`); continue; }
+      if (!cur.includes(e.text)) { left(`${e.path} — the lines we added were changed or removed; not touched`); continue; }
+      const at = cur.lastIndexOf(e.text);
+      fs.writeFileSync(e.path, cur.slice(0, at) + cur.slice(at + e.text.length));
+      done(`${e.path} (removed the ${e.kind || 'appended'} lines; the rest of the file is yours and untouched)`);
+      continue;
+    }
     left(`unknown manifest action '${e.action}' — not touched`);
   }
 
@@ -252,6 +268,68 @@ function uninstall() {
 }
 
 if (flag('uninstall')) uninstall();
+
+// ---------------------------------------------------------------------------------------------
+// --wire-doctrine — load the standing rules into a CLAUDE.md that already exists.
+//
+// The install never edits somebody's CLAUDE.md, and that stays true. But almost everyone has one,
+// so for most people the standing rules were written beside it and never loaded — the part of the
+// kit that shapes behaviour between skill triggers was inert, while the install reported success.
+//
+// This is the second consent, and it is deliberately separate and deliberately late: sessions.mjs
+// measures the sessions before and after install and only recommends this once the parts that
+// DID load have moved the numbers. The change itself is one import line, appended, recorded, and
+// removed again by --uninstall. Nothing already in the file is touched or reordered.
+// ---------------------------------------------------------------------------------------------
+if (flag('wire-doctrine')) {
+  console.log(B(`\n  Five Hats — load the standing rules (kit ${KIT_VERSION})`));
+  const theirs = path.join(CLAUDE_HOME, 'CLAUDE.md');
+  const ours = path.join(CLAUDE_HOME, 'five-hats-doctrine.md');
+  const current = readIf(theirs);
+  if (current === null) {
+    console.log('\n  There is no CLAUDE.md here, so there is nothing to wire into — a plain install writes');
+    console.log(`  the rules AS your CLAUDE.md:  node install.mjs <your-projects>\n`);
+    process.exit(0);
+  }
+  if (current.includes('five-hats-doctrine.md') || current.includes('Installed by five-hats')) {
+    console.log('\n  Already loading — your CLAUDE.md imports the standing rules. Nothing to do.');
+    console.log(DIM('  `node sessions.mjs` now compares the sessions since then with the ones before.\n'));
+    process.exit(0);
+  }
+  if (APPLY && process.env.FIVE_HATS_HOME && !process.env.CLAUDE_CONFIG_DIR) {
+    console.error(`\n  ${B('REFUSING — this run is half-isolated.')} FIVE_HATS_HOME sandboxes the undo record but`);
+    console.error('  CLAUDE_CONFIG_DIR is not set, so the edit would land in your real CLAUDE.md. Set both or neither.\n');
+    process.exit(2);
+  }
+  // Claude Code resolves a relative @import against the file that contains it, so this is right
+  // under CLAUDE_CONFIG_DIR as well as ~/.claude.
+  const block = `${current.endsWith('\n') ? '' : '\n'}\n<!-- five-hats: standing rules. Delete these two lines to stop loading them. -->\n@five-hats-doctrine.md\n`;
+  const writeOurs = readIf(ours) === null;
+  console.log(APPLY ? '' : DIM('  DRY RUN — nothing below has happened yet.\n'));
+  if (writeOurs) {
+    console.log(`  WRITE    ${fwd(ours)}`);
+    console.log(DIM(`           ${Buffer.byteLength(DOCTRINE_TEXT)} bytes — the standing rules (not present yet)`));
+  }
+  console.log(`  APPEND   ${fwd(theirs)}`);
+  console.log(DIM('           to the END of your file — nothing above it moves. Exactly these bytes:'));
+  console.log(block.split('\n').map((l) => `             ${l}`).join('\n'));
+  console.log(`  ${B('WILL NEVER:')} change or reorder anything already in your CLAUDE.md · touch settings.json`);
+  if (!APPLY) {
+    console.log(`\n  ${B('Nothing above has happened.')} Add ${B('--apply')} to do exactly this. --uninstall takes it back out.\n`);
+    process.exit(0);
+  }
+  if (writeOurs) {
+    record({ action: 'write', path: ours, kind: 'doctrine-alongside', sha256: sha(Buffer.from(DOCTRINE_TEXT)), bytes: Buffer.byteLength(DOCTRINE_TEXT) });
+    fs.writeFileSync(ours, DOCTRINE_TEXT);
+  }
+  record({ action: 'append', path: theirs, kind: 'doctrine-import', text: block });
+  fs.appendFileSync(theirs, block);
+  writeUndo();
+  console.log(`\n  ${B('Done.')} Your next session loads the standing rules.`);
+  console.log('  From here, `node sessions.mjs` compares the sessions after this line with the ones before it —');
+  console.log('  and says so if they got worse. Take it out: node install.mjs --uninstall\n');
+  process.exit(0);
+}
 
 // ---------------------------------------------------------------------------------------------
 // PLAN — computed the same way for dry run and apply, from what is on disk right now. A step
@@ -500,9 +578,7 @@ if (GLOBAL) {
 // It also only reproduces on a machine where that variable points somewhere non-standard — which
 // no CI configures. Found by a reviewer, on her machine, reading a dry run she then declined to
 // apply. That is the argument for handing the tool to someone else, made concrete.
-const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR
-  ? path.resolve(process.env.CLAUDE_CONFIG_DIR)
-  : path.join(os.homedir(), '.claude');
+// (CLAUDE_HOME is defined at the top, beside the other paths, for the reason above.)
 
 // THE REVERSIBILITY HOLE. FIVE_HATS_HOME sandboxes the MANIFEST, but the skills destination came
 // from CLAUDE_CONFIG_DIR / the real homedir — so a run somebody believed was isolated wrote nine
@@ -535,42 +611,7 @@ const CLAUDE_HOME_SOURCE = process.env.CLAUDE_CONFIG_DIR ? 'CLAUDE_CONFIG_DIR' :
 //
 // All three are MECHANICAL: fixed text, written only where nothing of theirs exists, removed by
 // the same manifest as everything else. None of them decides anything for the person.
-const DOCTRINE_TEXT = `# How this workspace operates
-
-Installed by five-hats. Delete this file to opt out; nothing depends on it.
-
-## Three decisions never left to the model
-
-1. **What is true** — count it, do not recall it. Before stating anything about current state,
-   run the thing that counts. Remembered status is a guess wearing a suit.
-2. **What is done** — one command that exits pass or fail decides, not an opinion. If no such
-   command exists for a project, say so; that absence is the finding.
-3. **What ships** — a lane, and a human for anything irreversible.
-
-## Lanes — chosen before the work, never renegotiated after
-
-- **Fast** — docs, copy, tests, read-only screens. Do it and report.
-- **Tier-1** — anything that changes real output. Prepare it, get it green, then STOP for a human.
-- **Hard halt** — schema, customer data, money, legal, anything that sends or publishes.
-
-If a change *could* alter real output it is Tier-1. **Any doubt at all resolves to Tier-1.**
-
-## Standing rules
-
-- **Say what you could not see.** "Nothing found" and "nothing looked at" must never print the
-  same sentence. A check that reports clean while blind ends the search.
-- **A crash is not a result.** If a step failed, the output says so — it never reports the
-  remaining findings as though the set were complete.
-- **Report, never act** on anything destructive. Propose, explain, let a human decide.
-- **Never state more than the source knew.** Do not turn "cannot tell" into "no", or an absence
-  of evidence into an absence of the practice.
-- **Green is not used.** Passing checks and having a user are unrelated facts.
-
-## Memory
-
-\`STATE.md\` holds CURRENT STATE ONLY, capped short. History goes to \`DECISIONS.md\`, append-only
-and dated. Never write down a number you could count — it goes stale silently and nothing tells you.
-`;
+// DOCTRINE_TEXT lives in doctrine-text.mjs — the --wire-doctrine step writes the same bytes.
 
 const STATE_TEMPLATE = `# STATE
 
@@ -613,13 +654,15 @@ if (fs.existsSync(CLAUDE_HOME)) {
   } else if (!fs.existsSync(ours)) {
     steps.push({
       line: `WRITE    ${fwd(ours)}`,
-      detail: `${Buffer.byteLength(DOCTRINE_TEXT)} bytes — you already have a CLAUDE.md, so this sits BESIDE it, untouched. Reference it from yours if you want it loaded`,
+      detail: `${Buffer.byteLength(DOCTRINE_TEXT)} bytes — you already have a CLAUDE.md, so this sits BESIDE it, untouched, and does NOT load yet. `
+        + '`node sessions.mjs` measures your sessions and says when loading it has been earned',
       do() {
         record({ action: 'write', path: ours, kind: 'doctrine-alongside', sha256: sha(Buffer.from(DOCTRINE_TEXT)), bytes: Buffer.byteLength(DOCTRINE_TEXT) });
         fs.writeFileSync(ours, DOCTRINE_TEXT);
       },
     });
-    skipped.push('your CLAUDE.md is untouched — ours is written alongside as five-hats-doctrine.md');
+    skipped.push('your CLAUDE.md is untouched — ours is written alongside as five-hats-doctrine.md and is NOT loading. '
+      + 'Work as usual; `node sessions.mjs` compares your sessions before and after and tells you when to run --wire-doctrine');
   }
 }
 
@@ -745,6 +788,10 @@ function writeUndo() {
   }
   L.push(`${cfg.length ? '2' : '1'}. Delete these files (each was written by the installer; nothing else was):`);
   for (const f of [...new Set(files)]) L.push(`   - ${f}`);
+  for (const a of entries.filter((e) => e.action === 'append')) {
+    L.push(`   Do NOT delete ${a.path} — it is yours. Remove only these lines from its end:`);
+    for (const l of a.text.split('\n').filter(Boolean)) L.push(`         ${l}`);
+  }
   L.push(`${cfg.length ? '3' : '2'}. Delete this folder last — it holds only kit bookkeeping and preserved baseline copies:`);
   L.push(`   - ${HOME_DIR}`);
   L.push('');

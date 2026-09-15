@@ -92,9 +92,28 @@ if (regPath) {
   }
 }
 
+// ---- has the way of working earned the next step? -------------------------------------------
+// sessions.mjs reads every transcript, so it runs at most once a day and the pulse reads the saved
+// verdict in between. Only the two verdicts that ask for a decision ever print — "wait" and
+// "hold" every session would be wallpaper.
+const VERDICT_FILE = path.join(HOME_DIR, 'sessions.json');
+let sessionsVerdict = null;
+if (fs.existsSync(path.join(HOME_DIR, 'install-manifest.jsonl'))) {
+  try {
+    const saved = JSON.parse(readIf(VERDICT_FILE) || 'null');
+    if (saved && Date.now() - new Date(saved.at).getTime() < 86400000) sessionsVerdict = saved;
+    else {
+      execFileSync(process.execPath, [path.join(HERE, 'sessions.mjs'), '--json', '--save'],
+        { encoding: 'utf8', stdio: 'pipe', timeout: 20000, maxBuffer: 64 * 1024 * 1024 });
+      sessionsVerdict = JSON.parse(readIf(VERDICT_FILE) || 'null');
+    }
+  } catch { sessionsVerdict = null; /* a slow or failed count must never cost a session its start */ }
+}
+const sessionsAsk = sessionsVerdict && ['wire', 'unwire'].includes(sessionsVerdict.verdict) ? sessionsVerdict : null;
+
 // ---- print ---------------------------------------------------------------------------------------
 const stale = daysSince === null || daysSince >= STALE_AFTER_DAYS;
-const nothingToSay = !stale && !serious.length && !driftFailed;
+const nothingToSay = !stale && !serious.length && !driftFailed && !sessionsAsk;
 
 if (nothingToSay && QUIET) process.exit(0);
 
@@ -109,6 +128,11 @@ if (serious.length) {
   console.log(`  ${B(`${serious.length} serious`)}`);
   for (const d of serious.slice(0, 4)) console.log(`     ${d.project}: ${d.what}`);
   if (serious.length > 4) console.log(`     ...and ${serious.length - 4} more`);
+}
+
+if (sessionsAsk) {
+  console.log(`  ${B('your sessions:')} ${sessionsAsk.headline}`);
+  console.log(`     ${B('node sessions.mjs')}   the numbers, and the one change it recommends`);
 }
 
 if (daysSince === null) {
