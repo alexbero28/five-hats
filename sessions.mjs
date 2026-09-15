@@ -54,6 +54,8 @@ const DOCTRINE_FILE = 'five-hats-doctrine.md';
 const MIN_SESSIONS = 8;
 const MIN_CLAIMS = 5;
 const MIN_PROMPTS = 20;
+// Under this many prompts a session cannot show a habit either way — see measure().
+const MIN_PROMPTS_PER_SESSION = 3;
 const MAX_FILE_BYTES = 200 * 1024 * 1024;
 
 const B = (s) => `\x1b[1m${s}\x1b[0m`;
@@ -160,15 +162,24 @@ function manifestDates() {
   return { installedAt, wiredAt };
 }
 
-function measure(list) {
+function measure(all) {
+  // A ONE-PROMPT SESSION IS NOT EVIDENCE OF A HABIT. "Did a skill fire", "was anything written
+  // down" — neither can happen in a session that asked one question and closed, yet each such stub
+  // used to pull a per-session rate down exactly as hard as a 300-turn day. Measured on a real
+  // machine, six of eleven sessions in one window were 1-2 prompts, and they moved a rate 20+
+  // points on their own. Stubs are counted and reported, never scored: what they measure is how
+  // often someone opened a window, which is not the question.
+  const list = all.filter((s) => s.prompts >= MIN_PROMPTS_PER_SESSION);
+  const stubs = all.length - list.length;
   const sum = (k) => list.reduce((n, s) => n + (typeof s[k] === 'boolean' ? Number(s[k]) : s[k]), 0);
   const sessions = list.length;
   const prompts = sum('prompts');
   const claims = sum('claims');
   return {
     sessions,
-    from: list.length ? list[0].start.slice(0, 10) : null,
-    to: list.length ? list[list.length - 1].start.slice(0, 10) : null,
+    stubs,
+    from: all.length ? all[0].start.slice(0, 10) : null,
+    to: all.length ? all[all.length - 1].start.slice(0, 10) : null,
     // proportions in 0..100, or null when there is too little to say anything
     backed: claims >= MIN_CLAIMS ? Math.round((100 * sum('backed')) / claims) : null,
     skills: sessions >= MIN_SESSIONS ? Math.round((100 * sum('skill')) / sessions) : null,
@@ -292,7 +303,9 @@ if (flag('json')) {
 // ---- print --------------------------------------------------------------------------------------
 const fmt = (v, unit) => (v === null || v === undefined ? DIM('not enough yet') : `${v}${unit}`);
 console.log(B(`\n  Five Hats — how the work changed (kit ${KIT_VERSION})\n`));
-const windowLine = (name, m) => m && console.log(`  ${name.padEnd(9)} ${m.sessions} session(s)${m.from ? DIM(`  ${m.from} → ${m.to}`) : ''}`);
+const windowLine = (name, m) => m && console.log(`  ${name.padEnd(9)} ${m.sessions} session(s)`
+  + `${m.from ? DIM(`  ${m.from} → ${m.to}`) : ''}`
+  + `${m.stubs ? DIM(`  · ${m.stubs} one-or-two-prompt session(s) counted but not scored`) : ''}`);
 windowLine('before', result.before);
 windowLine('after', result.after);
 windowLine('rules on', result.wired);
@@ -327,5 +340,7 @@ if (result.verdict === 'unwire') {
   console.log(DIM('  A rule that makes the work worse is not doctrine, it is weight.'));
 }
 console.log(DIM('\n  Counted, never read out: nothing from a transcript is printed. Two rows match phrases and'));
-console.log(DIM('  are heuristics. This is a before/after, not an experiment — the projects and the month changed too.\n'));
+console.log(DIM('  are heuristics. This is a before/after, not an experiment — the projects and the month changed too.'));
+console.log(DIM('  WHICH skills fire follows the kind of work, not the quality of it, which is why that row'));
+console.log(DIM('  never votes. Sessions under three prompts are counted but scored in nothing.\n'));
 process.exit(0);

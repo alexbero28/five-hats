@@ -746,7 +746,9 @@ if (!hasGit) {
     fs.mkdirSync(home, { recursive: true });
     const theirs = '# mine\n\nMy own rules. Nothing may move these.\n';
     writeFileSync(join(cfg, 'CLAUDE.md'), theirs);
-    // A fake session: one prompt, one answer claiming done — with or without the work behind it.
+    // A fake session: three prompts, each answered with a claim that the work is done — with or
+    // without the work behind it. Three because a session under that is a stub and is scored in
+    // nothing, which is the rule this fixture has to respect to be measuring anything at all.
     const session = (day, good) => {
       const at = `${day}T12:00:00.000Z`;
       const tools = good ? [
@@ -754,22 +756,35 @@ if (!hasGit) {
         { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } },
         { type: 'tool_use', name: 'Write', input: { file_path: '/p/STATE.md' } },
       ] : [];
-      return [
-        { type: 'user', timestamp: at, message: { role: 'user', content: 'fix the login bug' } },
-        { type: 'assistant', timestamp: at, message: { role: 'assistant', content: [...tools, { type: 'text', text: 'Fixed, it is done.' }] } },
-      ].map((o) => JSON.stringify(o)).join('\n');
+      const lines = [];
+      for (const ask of ['fix the login bug', 'now the signup form', 'and the session timeout']) {
+        lines.push({ type: 'user', timestamp: at, message: { role: 'user', content: ask } });
+        lines.push({ type: 'assistant', timestamp: at, message: { role: 'assistant', content: [...tools, { type: 'text', text: 'Fixed, it is done.' }] } });
+      }
+      return lines.map((o) => JSON.stringify(o)).join('\n');
     };
     for (let d = 1; d <= 10; d += 1) {
       writeFileSync(join(tdir, `b${d}.jsonl`), session(`2026-01-${String(d).padStart(2, '0')}`, false));
       writeFileSync(join(tdir, `a${d}.jsonl`), session(`2026-02-${String(d + 1).padStart(2, '0')}`, true));
     }
     writeFileSync(join(tdir, 'noise.jsonl'), '{"type":"user","message":{"content":"<command-name>/clear</command-name>"}}\nnot json\n');
+    // Five one-prompt stubs in the after window, each with none of the good behaviour. If stubs
+    // counted, they would drag every per-session rate down and invert the verdict.
+    for (let d = 1; d <= 5; d += 1) {
+      writeFileSync(join(tdir, `stub${d}.jsonl`), [
+        { type: 'user', timestamp: `2026-02-2${d}T09:00:00.000Z`, message: { role: 'user', content: 'quick question' } },
+        { type: 'assistant', timestamp: `2026-02-2${d}T09:00:00.000Z`, message: { role: 'assistant', content: [{ type: 'text', text: 'Yes.' }] } },
+      ].map((o) => JSON.stringify(o)).join('\n'));
+    }
     writeFileSync(join(home, 'install-manifest.jsonl'), `${JSON.stringify({ v: KIT_VERSION, at: '2026-02-01T00:00:00.000Z', action: 'mkdir', path: home })}\n`);
 
     const j1 = JSON.parse(run('sessions.mjs', ['--json']).stdout || '{}');
     j1.verdict === 'wire' && j1.before.sessions === 10 && j1.after.sessions === 10 && j1.comparison.worse === 0
       ? ok('sessions.mjs recommends loading the rules once the numbers move (10 before, 10 after, none worse)')
       : bad(`sessions.mjs verdict was '${j1.verdict}', expected 'wire' (${j1.headline})`);
+    j1.after.stubs === 5 && j1.after.skills === 100
+      ? ok('one-prompt sessions are counted and reported but drag no rate down')
+      : bad(`stub sessions leaked into the rates (stubs=${j1.after.stubs}, skills=${j1.after.skills}%, expected 5 and 100%)`);
 
     const dry = run('install.mjs', ['--wire-doctrine']);
     dry.status === 0 && readFileSync(join(cfg, 'CLAUDE.md'), 'utf8') === theirs && !existsSync(join(cfg, 'five-hats-doctrine.md'))

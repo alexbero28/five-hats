@@ -484,6 +484,9 @@ node install.mjs --wire-doctrine --apply   # add it. --uninstall takes it back o
 30 days by default), so the comparison starts on the day you install — no waiting to record a
 "before". It counts, per session: how often a "done" came with a check actually run in the same
 turn, how often where-things-stand got written down, and how often you had to correct the AI.
+Sessions under three prompts are counted and reported but scored in nothing — a window you opened
+to ask one question cannot show a habit either way, and on a real machine six such stubs in one
+window moved a per-session rate by more than twenty points on their own.
 How often a skill fired is shown too but never scored: fewer fires can mean better discipline or
 just fewer tokens spent on skills nobody needed, and a count cannot tell which. Only outcomes vote.
 Nothing from a transcript is ever printed — only counts.
