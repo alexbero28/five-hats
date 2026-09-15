@@ -476,6 +476,10 @@ const writeHook = (dest, text, kindTag) => ({
   },
 });
 
+// A global core.hooksPath already in place silences .git/hooks everywhere — read it once, here,
+// because it decides whether per-repo hooks are worth writing at all.
+const globalHooksPath = git(['config', '--global', '--get', 'core.hooksPath']);
+
 // Repos whose own hooks a global path would silence — enumerated BEFORE anyone consents,
 // because a replaced hook does not fail, it just stops happening.
 const reposWithOwnHooks = [];
@@ -538,6 +542,15 @@ if (GLOBAL) {
       });
     }
   }
+} else if (globalHooksPath && path.resolve(globalHooksPath) !== path.resolve(path.join(HOME_DIR, 'hooks'))) {
+  // A GLOBAL core.hooksPath switches .git/hooks off in EVERY repo on the machine. Writing there
+  // anyway produces exactly the defect this kit exists to catch: files on disk, an install that
+  // reports success, and a guard that can never fire. Found on a machine that had one — four
+  // hooks were written, the install said "20 changes made", and a staged AWS key sailed through.
+  skipped.push(`every hook — git config core.hooksPath is set globally to '${globalHooksPath}', `
+    + 'so .git/hooks is DEAD in every repo on this machine and nothing written there could ever run. '
+    + `Nothing was written. Add this line to ${fwd(path.join(globalHooksPath, 'pre-commit'))} `
+    + `(and pre-push, with --push) yourself:  node ${fwd(path.join(HERE, 'bin', 'secret-guard.mjs'))} --staged || exit 1`);
 } else {
   // Per-repo, the default. An existing hook that is not ours is never overwritten and never
   // appended to — editing a file somebody else wrote is a judgment call, and this file does

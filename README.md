@@ -444,6 +444,11 @@ baseline JSON to `~/.five-hats/` — because the before-picture currently lives 
 where one re-clone destroys the only honest "before" you will ever have. Machine-wide hooks are
 an explicit opt-in (`--global-hooks`) that first names every repo whose own hooks would go dark.
 
+If you already have a **global** `core.hooksPath`, git ignores every repo's own `.git/hooks`, so the
+installer writes none of them and tells you the one line to add to the hooks you already have.
+Writing files that could never run — and reporting success — is the exact defect this kit exists to
+catch; it shipped that bug once, on a machine that had one.
+
 What it will never do: write a `verify` for a project (it may *suggest* one when it sees a test
 script — a verify a machine invented is a verify nobody trusts), set any lane but `tier1`,
 overwrite an existing hook, delete anything, commit, push, touch project source, or make a

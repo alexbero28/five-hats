@@ -232,10 +232,15 @@ try {
   writeFileSync(join(s, 'fx', 'app', 'package.json'), '{"name":"a"}\n');
   spawnSync('git', ['init', '-q'], { cwd: join(s, 'fx', 'app') });
   const regPath = join(s, 'mine.json');
+  // GIT_CONFIG_GLOBAL: this check is about per-repo hooks, and the machine running it may have a
+  // global core.hooksPath — in which case the installer correctly writes no per-repo hook at all
+  // and this check would fail for the right reason. Isolate git's global config so the check
+  // measures the installer, not the machine.
+  writeFileSync(join(s, 'gitconfig'), '');
   execFileSync(process.execPath,
     [join(root, 'install.mjs'), join(s, 'fx'), '--registry', regPath, '--apply'],
     { encoding: 'utf8', stdio: 'pipe', timeout: 60000,
-      env: { ...process.env, FIVE_HATS_HOME: join(s, 'h'), CLAUDE_CONFIG_DIR: join(s, 'cfg') } });
+      env: { ...process.env, GIT_CONFIG_GLOBAL: join(s, 'gitconfig'), FIVE_HATS_HOME: join(s, 'h'), CLAUDE_CONFIG_DIR: join(s, 'cfg') } });
   const hook = readFileSync(join(s, 'fx', 'app', '.git', 'hooks', 'pre-commit'), 'utf8');
   if (!hook.includes('--registry') || !hook.includes('mine.json')) {
     bad('hook does not pin pulse to the registry this repo was installed with');
@@ -589,7 +594,14 @@ if (!hasGit) {
   // CLAUDE_CONFIG_DIR is set alongside FIVE_HATS_HOME on purpose: a run that sandboxes the
   // manifest but not the skills destination is exactly what install now refuses, and this check
   // was doing it. The rule caught the kit's own gate — which is the rule working.
-  const env = { ...process.env, FIVE_HATS_HOME: join(sb, 'home'), CLAUDE_CONFIG_DIR: join(sb, 'cfg') };
+  // GIT_CONFIG_GLOBAL isolates git's global config: on a machine that sets core.hooksPath globally
+  // the installer writes no per-repo hooks (correctly — they could never run), and every hook
+  // assertion below would then be measuring the machine instead of the installer.
+  writeFileSync(join(sb, 'gitconfig'), '');
+  const env = {
+    ...process.env, GIT_CONFIG_GLOBAL: join(sb, 'gitconfig'),
+    FIVE_HATS_HOME: join(sb, 'home'), CLAUDE_CONFIG_DIR: join(sb, 'cfg'),
+  };
   const reg = join(sb, 'projects.json');
   const inst = (args) => spawnSync(process.execPath, [join(root, 'install.mjs'), ...args],
     { encoding: 'utf8', env, timeout: 120000 });
@@ -790,6 +802,38 @@ if (!hasGit) {
     bad(`sessions/wire round-trip crashed: ${String(e.message).split('\n')[0]}`);
   } finally {
     fs.rmSync(sx, { recursive: true, force: true });
+  }
+}
+
+// 10. A GLOBAL core.hooksPath kills .git/hooks in every repo on the machine. The installer must
+//     write NOTHING there and say why — found on a real machine where it wrote four hooks, said
+//     "20 changes made", and a staged AWS key then sailed through an unprotected commit.
+{
+  const gx = fs.mkdtempSync(join(os.tmpdir(), 'fh-globalhooks-'));
+  try {
+    const proj = join(gx, 'projects', 'p1');
+    fs.mkdirSync(proj, { recursive: true });
+    writeFileSync(join(proj, 'package.json'), '{"name":"p1"}\n');
+    const g = (args, cwd) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+    g(['init', '-q'], proj);
+    const gitconfig = join(gx, 'gitconfig');
+    writeFileSync(gitconfig, `[core]\n\thooksPath = ${join(gx, 'elsewhere').replace(/\\/g, '/')}\n`);
+    const env = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: gitconfig,
+      FIVE_HATS_HOME: join(gx, 'home'),
+      CLAUDE_CONFIG_DIR: join(gx, 'cfg'),
+    };
+    const r = spawnSync(process.execPath, [join(root, 'install.mjs'), join(gx, 'projects'), '--apply'],
+      { encoding: 'utf8', env, timeout: 120000 });
+    const wroteHook = existsSync(join(proj, '.git', 'hooks', 'pre-commit'));
+    const saidSo = /hooksPath is set globally/.test(r.stdout || '');
+    if (!wroteHook && saidSo) ok('a global core.hooksPath: installer writes no dead hooks and says why');
+    else bad(`global core.hooksPath: hook written=${wroteHook}, explained=${saidSo} — a hook there could never run`);
+  } catch (e) {
+    bad(`global hooksPath check crashed: ${String(e.message).split('\n')[0]}`);
+  } finally {
+    fs.rmSync(gx, { recursive: true, force: true });
   }
 }
 
