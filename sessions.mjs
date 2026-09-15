@@ -179,18 +179,24 @@ function measure(list) {
   };
 }
 
+// OUTCOMES ARE SCORED; ACTIVITY IS SHOWN. A skill firing is activity — fewer fires can mean the
+// work got more disciplined or that fewer tokens went on skills nobody needed, and a count cannot
+// tell which. Scoring it "up is better" would reward spend. So it prints for context and never
+// votes; only rows where the direction is unambiguous decide the verdict.
 const ROWS = [
   { key: 'backed', label: '"done" claims with a check run in the same turn', unit: '%', better: 'up', points: 10 },
-  { key: 'skills', label: 'sessions where a skill fired', unit: '%', better: 'up', points: 10 },
   { key: 'memory', label: 'sessions that wrote down where things stand', unit: '%', better: 'up', points: 10 },
   { key: 'corrections', label: 'corrections per 100 prompts (heuristic)', unit: '', better: 'down', points: 1 },
+  { key: 'skills', label: 'sessions where a skill fired', unit: '%', better: null, points: 10 },
 ];
+const SCORED = ROWS.filter((r) => r.better).length;
 
 function compare(a, b) {
   const rows = ROWS.map((r) => {
     const x = a[r.key]; const y = b[r.key];
     if (x === null || y === null) return { ...r, before: x, after: y, move: 'unknown' };
     const d = y - x;
+    if (!r.better) return { ...r, before: x, after: y, delta: Math.round(d * 10) / 10, move: 'info' };
     const good = r.better === 'up' ? d : -d;
     // Corrections also need a RELATIVE drop — 2.0 to 1.0 per 100 means something, 30 to 29 does not.
     const bigEnough = Math.abs(d) >= r.points && (r.key !== 'corrections' || Math.abs(d) >= 0.25 * Math.max(x, y));
@@ -263,7 +269,7 @@ function decide() {
   else verdict = 'hold';
   const headline = {
     loaded: `everything is loading: ${c.better} better, ${c.worse} worse than before install`,
-    wire: `${c.better} of ${ROWS.length} numbers improved and none got worse — with the standing rules still NOT loading. Time to load them`,
+    wire: `${c.better} of ${SCORED} outcomes improved and none got worse — with the standing rules still NOT loading. Time to load them`,
     hold: `${c.better} better, ${c.worse} worse — not enough to recommend changing your CLAUDE.md yet`,
   }[verdict];
   return { ...base, verdict, before, after, comparison: c, headline };
@@ -295,7 +301,7 @@ const table = result.comparison ? result.comparison.rows : result.before ? ROWS.
 if (table.length) {
   console.log('');
   for (const r of table) {
-    const mark = { better: '▲ better', worse: '▼ worse', flat: '· flat', unknown: DIM('? cannot tell') }[r.move] || '';
+    const mark = { better: '▲ better', worse: '▼ worse', flat: '· flat', info: DIM(`· ${r.delta > 0 ? '+' : ''}${r.delta} (not scored)`), unknown: DIM('? cannot tell') }[r.move] || '';
     const after = 'after' in r ? `  →  ${fmt(r.after, r.unit).padEnd(6)}  ${mark}` : '';
     console.log(`  ${r.label.padEnd(50)} ${fmt(r.before, r.unit)}${after}`);
   }

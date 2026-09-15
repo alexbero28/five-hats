@@ -478,8 +478,10 @@ node install.mjs --wire-doctrine --apply   # add it. --uninstall takes it back o
 **The before-picture already exists.** Claude Code keeps your session transcripts on disk (about
 30 days by default), so the comparison starts on the day you install — no waiting to record a
 "before". It counts, per session: how often a "done" came with a check actually run in the same
-turn, how often a skill fired, how often where-things-stand got written down, and how often you
-had to correct the AI. Nothing from a transcript is ever printed — only counts.
+turn, how often where-things-stand got written down, and how often you had to correct the AI.
+How often a skill fired is shown too but never scored: fewer fires can mean better discipline or
+just fewer tokens spent on skills nobody needed, and a count cannot tell which. Only outcomes vote.
+Nothing from a transcript is ever printed — only counts.
 
 When at least two of those improve and none get worse while the rules are *still not loading*, it
 says so and hands you the one change: a single import line appended to the end of your `CLAUDE.md`.
